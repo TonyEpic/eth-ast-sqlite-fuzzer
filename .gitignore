@@ -13,6 +13,9 @@ build/
 .vscode/
 .DS_Store
 
+Task description.pdf
+faq_guide.pdf
+
 output/generated/*
 output/results/*
 output/crashes/*
