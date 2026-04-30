@@ -1,5 +1,6 @@
 import json
 import uuid
+from dataclasses import asdict
 from pathlib import Path
 from test_db.interfaces import GeneratedWorkload, RunOutcome
 
@@ -20,5 +21,5 @@ def save_outcome(output_dir: Path, outcome: RunOutcome) -> Path:
     results_dir = output_dir / "results"
     results_dir.mkdir(parents=True, exist_ok=True)
     path = results_dir / f"{outcome.workload_id}.json"
-    path.write_text(json.dumps(outcome, default=lambda o: o.__dict__, indent=2), encoding="utf-8")
+    path.write_text(json.dumps(asdict(outcome), indent=2), encoding="utf-8")
     return path

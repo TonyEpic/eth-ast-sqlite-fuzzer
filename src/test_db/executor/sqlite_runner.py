@@ -1,12 +1,30 @@
+import shutil
+import tempfile
 from pathlib import Path
+from typing import List
+
 from test_db.config import PATCHED_SQLITE, VANILLA_SQLITE, DEFAULT_TIMEOUT_SEC
-from test_db.executor.process_runner import run_sql_file
+from test_db.executor.process_runner import run_statements
 from test_db.interfaces import ExecutionResult
 
 
-def run_on_patched(sql_file: Path, timeout_sec: int = DEFAULT_TIMEOUT_SEC) -> ExecutionResult:
-    return run_sql_file(PATCHED_SQLITE, sql_file, timeout_sec)
+def _run_with_fresh_db(engine_path: str, statements: List[str], timeout_sec: int) -> ExecutionResult:
+    """Run a workload against a freshly-created on-disk SQLite database.
+
+    A temp directory holds the DB file so state persists across the per-
+    statement subprocess invocations, then is removed when we are done.
+    """
+    tmp_dir = Path(tempfile.mkdtemp(prefix="testdb_"))
+    db_path = tmp_dir / "test.db"
+    try:
+        return run_statements(engine_path, statements, timeout_sec, db_path)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
 
-def run_on_vanilla(sql_file: Path, timeout_sec: int = DEFAULT_TIMEOUT_SEC) -> ExecutionResult:
-    return run_sql_file(VANILLA_SQLITE, sql_file, timeout_sec)
+def run_on_patched(statements: List[str], timeout_sec: int = DEFAULT_TIMEOUT_SEC) -> ExecutionResult:
+    return _run_with_fresh_db(PATCHED_SQLITE, statements, timeout_sec)
+
+
+def run_on_vanilla(statements: List[str], timeout_sec: int = DEFAULT_TIMEOUT_SEC) -> ExecutionResult:
+    return _run_with_fresh_db(VANILLA_SQLITE, statements, timeout_sec)

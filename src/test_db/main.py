@@ -23,14 +23,14 @@ def main() -> None:
     for _ in range(args.num_queries):
         workload_id = new_workload_id()
         workload = generate_workload()
-        sql_path = save_sql(output_dir, workload_id, workload)
+        save_sql(output_dir, workload_id, workload)
 
-        patched = run_on_patched(sql_path)
+        patched = run_on_patched(workload.statements)
         classification, reason = classify_single(patched)
 
         vanilla = None
         if args.diff:
-            vanilla = run_on_vanilla(sql_path)
+            vanilla = run_on_vanilla(workload.statements)
             same, diff_reason = compare_results(patched, vanilla)
             if not same:
                 classification = "mismatch"
