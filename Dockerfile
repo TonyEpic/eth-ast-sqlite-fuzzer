@@ -10,7 +10,21 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends \
         python3 \
         python3-pip \
- && rm -rf /var/lib/apt/lists/*
+        build-essential \
+ && rm -rf /var/lib/apt/lists/* \
+ && pip3 install --no-cache-dir gcovr
+
+# Build a third sqlite3 binary instrumented with gcov so we can measure how
+# much of the SQLite source the fuzzer actually exercises. Re-use the source
+# tree that the base image already ships at /home/test/sqlite3-src.
+RUN cp -r /home/test/sqlite3-src /opt/sqlite3-coverage \
+ && cd /opt/sqlite3-coverage/build \
+ && make distclean >/dev/null 2>&1 || true \
+ && ../configure --disable-shared --disable-tcl \
+        CFLAGS="-O0 -g -fprofile-arcs -ftest-coverage" \
+        LDFLAGS="-fprofile-arcs -ftest-coverage" >/dev/null \
+ && make -j"$(nproc)" sqlite3 \
+ && cp sqlite3 /usr/bin/sqlite3-coverage
 
 # Copy the project sources into the image.
 WORKDIR /opt/test-db

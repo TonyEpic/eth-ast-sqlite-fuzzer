@@ -56,6 +56,7 @@ def _cmd_experiment(args: argparse.Namespace) -> None:
         timeout_sec=args.timeout,
         keep_sql=args.keep_sql,
         progress_every=args.progress_every,
+        coverage=args.coverage,
     )
     print_summary(summary)
 
@@ -88,6 +89,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Persist every workload's SQL (default: only flagged).")
     exp_p.add_argument("--progress-every", type=int, default=100,
                        help="Print a progress line every N workloads.")
+    exp_p.add_argument("--coverage", action="store_true",
+                       help="Also run on the gcov-instrumented binary and emit a coverage report.")
     exp_p.set_defaults(func=_cmd_experiment)
 
     return parser

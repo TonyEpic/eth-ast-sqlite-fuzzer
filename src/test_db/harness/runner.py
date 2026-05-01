@@ -20,8 +20,9 @@ from pathlib import Path
 from typing import Optional
 
 from test_db.config import DEFAULT_TIMEOUT_SEC
-from test_db.executor.sqlite_runner import run_on_patched, run_on_vanilla
+from test_db.executor.sqlite_runner import run_on_coverage, run_on_patched, run_on_vanilla
 from test_db.generator.workload_generator import generate_workload
+from test_db.harness.coverage import collect_coverage, reset_coverage_data
 from test_db.oracle.classifier import classify_single
 from test_db.oracle.differential import compare_results
 
@@ -57,12 +58,13 @@ class WorkloadOutcome:
     gen_ms: float
     exec_patched_ms: float
     exec_vanilla_ms: float
+    exec_coverage_ms: float
     sql_text: str
 
 
-def _run_one(args: tuple[bool, int]) -> WorkloadOutcome:
+def _run_one(args: tuple[bool, bool, int]) -> WorkloadOutcome:
     """Generate one workload, run it, return a compact outcome record."""
-    diff, timeout_sec = args
+    diff, coverage, timeout_sec = args
 
     workload_id = uuid.uuid4().hex[:8]
 
@@ -86,6 +88,14 @@ def _run_one(args: tuple[bool, int]) -> WorkloadOutcome:
             classification = "mismatch"
             reason = diff_reason
 
+    exec_coverage_ms = 0.0
+    if coverage:
+        t = time.perf_counter()
+        # Errors here don't matter for classification — we just want the
+        # instrumented binary to exercise its code paths.
+        run_on_coverage(workload.statements, timeout_sec=timeout_sec)
+        exec_coverage_ms = (time.perf_counter() - t) * 1000
+
     queries = [s for s in workload.statements if _is_query(s)]
     n_exec_stmts = len(patched.statements)
     n_exec_queries = sum(1 for s in patched.statements if _is_query(s.sql))
@@ -101,6 +111,7 @@ def _run_one(args: tuple[bool, int]) -> WorkloadOutcome:
         gen_ms=gen_ms,
         exec_patched_ms=exec_patched_ms,
         exec_vanilla_ms=exec_vanilla_ms,
+        exec_coverage_ms=exec_coverage_ms,
         sql_text=workload.sql_text,
     )
 
@@ -117,6 +128,7 @@ def run_experiment(
     timeout_sec: int = DEFAULT_TIMEOUT_SEC,
     keep_sql: bool = False,
     progress_every: int = 100,
+    coverage: bool = False,
 ) -> dict:
     """Run workloads until at least `target_queries` queries have been generated.
 
@@ -132,6 +144,15 @@ def run_experiment(
     if keep_sql:
         sql_dir.mkdir(parents=True, exist_ok=True)
 
+    if coverage:
+        # Coverage data is global state on disk; serialize to avoid corrupt
+        # .gcda files from concurrent writers.
+        if workers != 1:
+            print(f"[coverage] forcing workers=1 (was {workers}) to avoid .gcda corruption", flush=True)
+            workers = 1
+        n_cleared = reset_coverage_data()
+        print(f"[coverage] cleared {n_cleared} stale .gcda files", flush=True)
+
     jsonl_path = run_dir / "workloads.jsonl"
     summary_path = run_dir / "summary.json"
 
@@ -146,7 +167,7 @@ def run_experiment(
 
     wall_start = time.perf_counter()
 
-    job = (diff, timeout_sec)
+    job = (diff, coverage, timeout_sec)
     with jsonl_path.open("w", encoding="utf-8") as jf, \
          ProcessPoolExecutor(max_workers=workers) as pool:
 
@@ -171,7 +192,7 @@ def run_experiment(
             total_statements += outcome.num_statements
             total_executed_statements += outcome.num_executed_statements
             total_gen_ms += outcome.gen_ms
-            total_exec_ms += outcome.exec_patched_ms + outcome.exec_vanilla_ms
+            total_exec_ms += outcome.exec_patched_ms + outcome.exec_vanilla_ms + outcome.exec_coverage_ms
             counts[outcome.classification] = counts.get(outcome.classification, 0) + 1
 
             record = asdict(outcome)
@@ -215,6 +236,20 @@ def run_experiment(
 
     wall_elapsed = time.perf_counter() - wall_start
 
+    coverage_summary: Optional[dict] = None
+    if coverage:
+        print("[coverage] running gcovr...", flush=True)
+        coverage_summary = collect_coverage(run_dir)
+        if coverage_summary:
+            print(
+                f"[coverage] line={coverage_summary.get('line_percent')}% "
+                f"branch={coverage_summary.get('branch_percent')}% "
+                f"func={coverage_summary.get('function_percent')}%",
+                flush=True,
+            )
+        else:
+            print("[coverage] gcovr produced no usable summary", flush=True)
+
     summary = {
         "run_id": run_id,
         "diff_enabled": diff,
@@ -253,6 +288,7 @@ def run_experiment(
             "workloads_jsonl": str(jsonl_path),
             "flagged_dir": str(flagged_dir),
         },
+        "coverage": coverage_summary,
     }
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
     return summary

@@ -1,0 +1,63 @@
+{
+    "root": "../../../../sqlite3-coverage",
+    "gcovr/summary_format_version": "0.6",
+    "files": [
+        {
+            "filename": "build/shell.c",
+            "line_total": 8663,
+            "line_covered": 504,
+            "line_percent": 5.8,
+            "function_total": 376,
+            "function_covered": 41,
+            "function_percent": 10.9,
+            "branch_total": 6261,
+            "branch_covered": 225,
+            "branch_percent": 3.6
+        },
+        {
+            "filename": "build/sqlite3.c",
+            "line_total": 53424,
+            "line_covered": 10264,
+            "line_percent": 19.2,
+            "function_total": 2942,
+            "function_covered": 877,
+            "function_percent": 29.8,
+            "branch_total": 35327,
+            "branch_covered": 4697,
+            "branch_percent": 13.3
+        },
+        {
+            "filename": "tool/lemon.c",
+            "line_total": 2989,
+            "line_covered": 0,
+            "line_percent": 0.0,
+            "function_total": 124,
+            "function_covered": 0,
+            "function_percent": 0.0,
+            "branch_total": 2291,
+            "branch_covered": 0,
+            "branch_percent": 0.0
+        },
+        {
+            "filename": "tool/mkkeywordhash.c",
+            "line_total": 270,
+            "line_covered": 0,
+            "line_percent": 0.0,
+            "function_total": 6,
+            "function_covered": 0,
+            "function_percent": 0.0,
+            "branch_total": 166,
+            "branch_covered": 0,
+            "branch_percent": 0.0
+        }
+    ],
+    "line_total": 65346,
+    "line_covered": 10768,
+    "line_percent": 16.5,
+    "function_total": 3448,
+    "function_covered": 918,
+    "function_percent": 26.6,
+    "branch_total": 44045,
+    "branch_covered": 4922,
+    "branch_percent": 11.2
+}
