@@ -16,14 +16,5 @@ build/
 Task description.pdf
 faq_guide.pdf
 
-output/generated/*
-output/results/*
-output/crashes/*
-output/mismatches/*
-output/reports/*
-
-!output/generated/.gitkeep
-!output/results/.gitkeep
-!output/crashes/.gitkeep
-!output/mismatches/.gitkeep
-!output/reports/.gitkeep
+# Fuzzer outputs are generated artifacts, not source.
+output/
