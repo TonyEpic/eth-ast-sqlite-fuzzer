@@ -18,3 +18,4 @@ faq_guide.pdf
 
 # Fuzzer outputs are generated artifacts, not source.
 output/
+bug-reproducers/

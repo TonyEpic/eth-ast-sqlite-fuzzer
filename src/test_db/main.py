@@ -10,6 +10,7 @@ from test_db.interfaces import RunOutcome
 from test_db.oracle.classifier import classify_single
 from test_db.oracle.differential import compare_results
 from test_db.storage.artifacts import new_workload_id, save_outcome, save_sql
+from test_db.triage import scaffold_one, scaffold_run
 
 
 def _cmd_run(args: argparse.Namespace) -> None:
@@ -61,6 +62,32 @@ def _cmd_experiment(args: argparse.Namespace) -> None:
     print_summary(summary)
 
 
+def _cmd_triage(args: argparse.Namespace) -> None:
+    out_root = Path(args.out)
+    if args.flagged:
+        target = scaffold_one(Path(args.flagged), out_root)
+        print(f"wrote {target}")
+        return
+
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+    else:
+        runs = Path(args.output_dir) / "runs"
+        if not runs.is_dir():
+            raise SystemExit(f"No runs found under {runs}")
+        candidates = [p for p in runs.iterdir() if p.is_dir() and (p / "summary.json").is_file()]
+        if not candidates:
+            raise SystemExit(f"No completed runs under {runs}")
+        run_dir = max(candidates, key=lambda p: p.stat().st_mtime)
+
+    created = scaffold_run(run_dir, out_root)
+    if not created:
+        print(f"no flagged outcomes in {run_dir}")
+        return
+    for p in created:
+        print(f"wrote {p}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="test-db", description="SQLite fuzzer")
     parser.add_argument("--output-dir", default=DEFAULT_OUTPUT_DIR)
@@ -92,6 +119,18 @@ def build_parser() -> argparse.ArgumentParser:
     exp_p.add_argument("--coverage", action="store_true",
                        help="Also run on the gcov-instrumented binary and emit a coverage report.")
     exp_p.set_defaults(func=_cmd_experiment)
+
+    tri_p = sub.add_parser(
+        "triage",
+        help="Scaffold spec-format bug-reproducers/<id>/ folders from flagged outcomes.",
+    )
+    tri_p.add_argument("--run-dir", default=None,
+                       help="Run dir to scaffold from (default: latest under output/runs).")
+    tri_p.add_argument("--flagged", default=None,
+                       help="Path to a single flagged <id>.json file (overrides --run-dir).")
+    tri_p.add_argument("--out", default="bug-reproducers",
+                       help="Output directory (default: bug-reproducers/).")
+    tri_p.set_defaults(func=_cmd_triage)
 
     return parser
 
