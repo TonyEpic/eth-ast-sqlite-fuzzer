@@ -1,14 +1,23 @@
 from test_db.interfaces import ExecutionResult
-from test_db.oracle.normalizer import normalize_output
+from test_db.oracle.normalizer import (
+    has_order_by,
+    is_version_sensitive,
+    normalize_error,
+    normalize_rows,
+)
 
 
 def compare_results(patched: ExecutionResult, vanilla: ExecutionResult) -> tuple[bool, str]:
     """Per-statement diff between patched and vanilla runs.
 
-    Step 4 will add row-set normalization and a version-difference allowlist;
-    for now this is a stricter version of the previous whole-output diff that
-    pinpoints the first divergent statement. Stderr is intentionally ignored
-    since error-message wording differs between SQLite versions.
+    Differences considered:
+      * Crash / timeout flags at workload level.
+      * Per-statement error vs success (after error-message normalization).
+      * Per-statement row sets (sorted unless the SQL has ORDER BY).
+
+    Statements that look version-sensitive (e.g. PRAGMA, RETURNING, JSON
+    subscript) are skipped, because patched 3.39.4 and vanilla 3.51.1 are
+    expected to differ there.
     """
     if patched.crashed != vanilla.crashed:
         return False, "Crash behavior differs"
@@ -23,14 +32,37 @@ def compare_results(patched: ExecutionResult, vanilla: ExecutionResult) -> tuple
         )
 
     for p, v in zip(patched.statements, vanilla.statements):
-        p_failed = p.returncode != 0 or p.timed_out
-        v_failed = v.returncode != 0 or v.timed_out
+        if is_version_sensitive(p.sql):
+            continue
+
+        # Both timed out at the same statement -> not interesting.
+        if p.timed_out and v.timed_out:
+            continue
+        if p.timed_out != v.timed_out:
+            return False, f"Stmt {p.stmt_idx} timeout differs"
+
+        p_failed = p.returncode != 0
+        v_failed = v.returncode != 0
+
         if p_failed != v_failed:
             return False, (
                 f"Stmt {p.stmt_idx} error status differs "
                 f"(patched_rc={p.returncode}, vanilla_rc={v.returncode})"
             )
-        if normalize_output(p.stdout) != normalize_output(v.stdout):
-            return False, f"Stmt {p.stmt_idx} stdout differs"
+
+        if p_failed and v_failed:
+            # Both errored: only flag when the *kind* of error differs.
+            if normalize_error(p.stderr) != normalize_error(v.stderr):
+                return False, (
+                    f"Stmt {p.stmt_idx} error kind differs "
+                    f"(patched={normalize_error(p.stderr)!r}, "
+                    f"vanilla={normalize_error(v.stderr)!r})"
+                )
+            continue
+
+        # Both succeeded: compare row sets.
+        ordered = has_order_by(p.sql)
+        if normalize_rows(p.stdout, ordered) != normalize_rows(v.stdout, ordered):
+            return False, f"Stmt {p.stmt_idx} row set differs"
 
     return True, "Equivalent"
