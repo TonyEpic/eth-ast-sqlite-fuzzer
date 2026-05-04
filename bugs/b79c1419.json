@@ -1,0 +1,285 @@
+{
+  "workload_id": "b79c1419",
+  "workload": {
+    "sql_text": "DROP TABLE IF EXISTS t0;\nCREATE TABLE t0 (c0 REAL UNIQUE, c1 REAL NOT NULL, c2 TEXT COLLATE RTRIM, c3 TEXT);\nCREATE INDEX IF NOT EXISTS i00 ON t0(c3, c1, c0);\nCREATE UNIQUE INDEX IF NOT EXISTS i11 ON t0(c2);\nCREATE UNIQUE INDEX IF NOT EXISTS i22 ON t0(c2, c0);\nINSERT INTO t0 (c0, c1, c2, c3) VALUES (-39.3, 268.95, 'pGOujRfu', 'R');\nINSERT INTO t0 (c0, c1, c2, c3) VALUES (271.92, 3.09, 'dCe', '346mI5'), (741.19, 649.05, 'yiLznu', 'g74gzJa'), (508.7, 391.7, 'IYs1zoTBik', 'l1'), (-162.87, 281.71, 'US6bLM', 'anuylG');\nINSERT INTO t0 (c0, c1, c2, c3) VALUES (NULL, 914.17, 'KHYs', '3ikVRFn'), (739.2, 407.42, '9CydhXxZ', 'IMmRHbqJt8');\nUPDATE t0 SET c1 = -692.67, c0 = -933.57 WHERE c2 < 18;\nUPDATE t0 SET c3 = '1n2Bu', c1 = 824.22;\nSELECT * FROM t0 WHERE c3 IS NOT NULL ORDER BY c1 ASC;\nSELECT DISTINCT * FROM t0 WHERE c2 IS NULL OR c1 != -32 GROUP BY c1, c0 LIMIT 53 OFFSET 12;\nSELECT c0 FROM t0 WHERE c2 IS NOT NULL AND c3 BETWEEN -66 AND 98 AND c0 IS NOT NULL;\n",
+    "statements": [
+      "DROP TABLE IF EXISTS t0;",
+      "CREATE TABLE t0 (c0 REAL UNIQUE, c1 REAL NOT NULL, c2 TEXT COLLATE RTRIM, c3 TEXT);",
+      "CREATE INDEX IF NOT EXISTS i00 ON t0(c3, c1, c0);",
+      "CREATE UNIQUE INDEX IF NOT EXISTS i11 ON t0(c2);",
+      "CREATE UNIQUE INDEX IF NOT EXISTS i22 ON t0(c2, c0);",
+      "INSERT INTO t0 (c0, c1, c2, c3) VALUES (-39.3, 268.95, 'pGOujRfu', 'R');",
+      "INSERT INTO t0 (c0, c1, c2, c3) VALUES (271.92, 3.09, 'dCe', '346mI5'), (741.19, 649.05, 'yiLznu', 'g74gzJa'), (508.7, 391.7, 'IYs1zoTBik', 'l1'), (-162.87, 281.71, 'US6bLM', 'anuylG');",
+      "INSERT INTO t0 (c0, c1, c2, c3) VALUES (NULL, 914.17, 'KHYs', '3ikVRFn'), (739.2, 407.42, '9CydhXxZ', 'IMmRHbqJt8');",
+      "UPDATE t0 SET c1 = -692.67, c0 = -933.57 WHERE c2 < 18;",
+      "UPDATE t0 SET c3 = '1n2Bu', c1 = 824.22;",
+      "SELECT * FROM t0 WHERE c3 IS NOT NULL ORDER BY c1 ASC;",
+      "SELECT DISTINCT * FROM t0 WHERE c2 IS NULL OR c1 != -32 GROUP BY c1, c0 LIMIT 53 OFFSET 12;",
+      "SELECT c0 FROM t0 WHERE c2 IS NOT NULL AND c3 BETWEEN -66 AND 98 AND c0 IS NOT NULL;"
+    ],
+    "metadata": {
+      "num_tables": 1,
+      "num_inserts_per_table": 3,
+      "num_selects_per_table": 3,
+      "seed": null,
+      "use_transactions": true,
+      "use_indexes": true,
+      "use_deletes": true,
+      "use_updates": true,
+      "use_alters": true,
+      "use_advanced_selects": true
+    }
+  },
+  "patched": {
+    "engine": "/usr/bin/sqlite3-3.39.4",
+    "statements": [
+      {
+        "stmt_idx": 0,
+        "sql": "DROP TABLE IF EXISTS t0;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.20163399969897
+      },
+      {
+        "stmt_idx": 1,
+        "sql": "CREATE TABLE t0 (c0 REAL UNIQUE, c1 REAL NOT NULL, c2 TEXT COLLATE RTRIM, c3 TEXT);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 14.360942000166688
+      },
+      {
+        "stmt_idx": 2,
+        "sql": "CREATE INDEX IF NOT EXISTS i00 ON t0(c3, c1, c0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 14.61316299992177
+      },
+      {
+        "stmt_idx": 3,
+        "sql": "CREATE UNIQUE INDEX IF NOT EXISTS i11 ON t0(c2);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 14.704698999594257
+      },
+      {
+        "stmt_idx": 4,
+        "sql": "CREATE UNIQUE INDEX IF NOT EXISTS i22 ON t0(c2, c0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 14.521267999953125
+      },
+      {
+        "stmt_idx": 5,
+        "sql": "INSERT INTO t0 (c0, c1, c2, c3) VALUES (-39.3, 268.95, 'pGOujRfu', 'R');",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 11.964659000113897
+      },
+      {
+        "stmt_idx": 6,
+        "sql": "INSERT INTO t0 (c0, c1, c2, c3) VALUES (271.92, 3.09, 'dCe', '346mI5'), (741.19, 649.05, 'yiLznu', 'g74gzJa'), (508.7, 391.7, 'IYs1zoTBik', 'l1'), (-162.87, 281.71, 'US6bLM', 'anuylG');",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 11.344257000018843
+      },
+      {
+        "stmt_idx": 7,
+        "sql": "INSERT INTO t0 (c0, c1, c2, c3) VALUES (NULL, 914.17, 'KHYs', '3ikVRFn'), (739.2, 407.42, '9CydhXxZ', 'IMmRHbqJt8');",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 11.701903999892238
+      },
+      {
+        "stmt_idx": 8,
+        "sql": "UPDATE t0 SET c1 = -692.67, c0 = -933.57 WHERE c2 < 18;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.2406770001689438
+      },
+      {
+        "stmt_idx": 9,
+        "sql": "UPDATE t0 SET c3 = '1n2Bu', c1 = 824.22;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 11.884079000083148
+      },
+      {
+        "stmt_idx": 10,
+        "sql": "SELECT * FROM t0 WHERE c3 IS NOT NULL ORDER BY c1 ASC;",
+        "returncode": 0,
+        "stdout": "|824.22|KHYs|1n2Bu\n-162.87|824.22|US6bLM|1n2Bu\n-39.3|824.22|pGOujRfu|1n2Bu\n271.92|824.22|dCe|1n2Bu\n508.7|824.22|IYs1zoTBik|1n2Bu\n739.2|824.22|9CydhXxZ|1n2Bu\n741.19|824.22|yiLznu|1n2Bu\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.5331650001826347
+      },
+      {
+        "stmt_idx": 11,
+        "sql": "SELECT DISTINCT * FROM t0 WHERE c2 IS NULL OR c1 != -32 GROUP BY c1, c0 LIMIT 53 OFFSET 12;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.5714729997853283
+      },
+      {
+        "stmt_idx": 12,
+        "sql": "SELECT c0 FROM t0 WHERE c2 IS NOT NULL AND c3 BETWEEN -66 AND 98 AND c0 IS NOT NULL;",
+        "returncode": 0,
+        "stdout": "-162.87\n-39.3\n271.92\n508.7\n739.2\n741.19\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.4342639997266815
+      }
+    ],
+    "total_duration_ms": 112.14178099999117,
+    "timed_out": false,
+    "crashed": false
+  },
+  "vanilla": {
+    "engine": "/usr/bin/sqlite3",
+    "statements": [
+      {
+        "stmt_idx": 0,
+        "sql": "DROP TABLE IF EXISTS t0;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.1733589999494143
+      },
+      {
+        "stmt_idx": 1,
+        "sql": "CREATE TABLE t0 (c0 REAL UNIQUE, c1 REAL NOT NULL, c2 TEXT COLLATE RTRIM, c3 TEXT);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 14.067615999920235
+      },
+      {
+        "stmt_idx": 2,
+        "sql": "CREATE INDEX IF NOT EXISTS i00 ON t0(c3, c1, c0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 13.867485000446322
+      },
+      {
+        "stmt_idx": 3,
+        "sql": "CREATE UNIQUE INDEX IF NOT EXISTS i11 ON t0(c2);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 14.529081999171467
+      },
+      {
+        "stmt_idx": 4,
+        "sql": "CREATE UNIQUE INDEX IF NOT EXISTS i22 ON t0(c2, c0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 15.556194000055257
+      },
+      {
+        "stmt_idx": 5,
+        "sql": "INSERT INTO t0 (c0, c1, c2, c3) VALUES (-39.3, 268.95, 'pGOujRfu', 'R');",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 12.95214899982966
+      },
+      {
+        "stmt_idx": 6,
+        "sql": "INSERT INTO t0 (c0, c1, c2, c3) VALUES (271.92, 3.09, 'dCe', '346mI5'), (741.19, 649.05, 'yiLznu', 'g74gzJa'), (508.7, 391.7, 'IYs1zoTBik', 'l1'), (-162.87, 281.71, 'US6bLM', 'anuylG');",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 12.275760999727936
+      },
+      {
+        "stmt_idx": 7,
+        "sql": "INSERT INTO t0 (c0, c1, c2, c3) VALUES (NULL, 914.17, 'KHYs', '3ikVRFn'), (739.2, 407.42, '9CydhXxZ', 'IMmRHbqJt8');",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 12.339896999947086
+      },
+      {
+        "stmt_idx": 8,
+        "sql": "UPDATE t0 SET c1 = -692.67, c0 = -933.57 WHERE c2 < 18;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.2676679998548934
+      },
+      {
+        "stmt_idx": 9,
+        "sql": "UPDATE t0 SET c3 = '1n2Bu', c1 = 824.22;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 12.497523999627447
+      },
+      {
+        "stmt_idx": 10,
+        "sql": "SELECT * FROM t0 WHERE c3 IS NOT NULL ORDER BY c1 ASC;",
+        "returncode": 0,
+        "stdout": "-39.3|824.22|pGOujRfu|1n2Bu\n271.92|824.22|dCe|1n2Bu\n741.19|824.22|yiLznu|1n2Bu\n508.7|824.22|IYs1zoTBik|1n2Bu\n-162.87|824.22|US6bLM|1n2Bu\n|824.22|KHYs|1n2Bu\n739.2|824.22|9CydhXxZ|1n2Bu\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.5852590004215017
+      },
+      {
+        "stmt_idx": 11,
+        "sql": "SELECT DISTINCT * FROM t0 WHERE c2 IS NULL OR c1 != -32 GROUP BY c1, c0 LIMIT 53 OFFSET 12;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.1104860004707007
+      },
+      {
+        "stmt_idx": 12,
+        "sql": "SELECT c0 FROM t0 WHERE c2 IS NOT NULL AND c3 BETWEEN -66 AND 98 AND c0 IS NOT NULL;",
+        "returncode": 0,
+        "stdout": "-162.87\n-39.3\n271.92\n508.7\n739.2\n741.19\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.0606259993437561
+      }
+    ],
+    "total_duration_ms": 114.34922900025413,
+    "timed_out": false,
+    "crashed": false
+  },
+  "classification": "mismatch",
+  "reason": "Stmt 10 row set differs"
+}
