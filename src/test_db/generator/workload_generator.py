@@ -5,8 +5,10 @@ This module provides functions to generate SQL statements for testing SQLite.
 Supports:
 - Table creation with various column types and constraints
 - INSERT, UPDATE, DELETE statements with test data
+- INSERT INTO ... SELECT statements for data copying
 - SELECT statements with WHERE, AND, OR conditions
 - ORDER BY, GROUP BY, DISTINCT, LIMIT, OFFSET
+- Subqueries in SELECT statements
 - JOIN operations (INNER, LEFT, CROSS)
 - CREATE INDEX, UNIQUE INDEX statements
 - ALTER TABLE (ADD COLUMN)
@@ -14,6 +16,8 @@ Supports:
 - Aggregate functions (COUNT, SUM, AVG, MIN, MAX)
 - Advanced operators (BETWEEN, IN, LIKE, COLLATE)
 """
+
+# TODO -> IN, VIEW, DROP col, PRAGMA, ANALYZE, WITHOUT, aggregate, Transactions
 
 import random
 import string
@@ -37,7 +41,7 @@ AGGREGATE_FUNCTIONS = ["COUNT", "SUM", "AVG", "MIN", "MAX"]
 COLLATION_TYPES = ["BINARY", "NOCASE", "RTRIM"]
 
 # Join types
-JOIN_TYPES = ["INNER JOIN", "LEFT JOIN", "CROSS JOIN"]
+JOIN_TYPES = ["INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN"]
 
 # Constraint types
 CONSTRAINT_TYPES = ["PRIMARY KEY", "UNIQUE", "NOT NULL", "DEFAULT", "CHECK", "COLLATE"]
@@ -142,12 +146,23 @@ def generate_random_value(data_type: str) -> Any:
         A random value appropriate for the type
     """
     if data_type == "INT":
-        return random.randint(-1000, 1000)
+        threshold = random.random()
+        if threshold < 0.3:
+            return 0
+        elif threshold < 0.35:
+            return 2**63 - 1  # Max Integer
+        elif threshold < 0.4:
+            return -(2**63)  # Min Integer
+        else:
+            return random.randint(-1000, 1000)
     elif data_type == "TEXT":
-        length = random.randint(1, 10)
-        return "".join(random.choices(string.ascii_letters + string.digits, k=length))
+        if 0.3 < random.random():
+          return "test-text"
+        else:
+          length = random.randint(1, 10)
+          return "".join(random.choices(string.ascii_letters + string.digits, k=length))
     elif data_type == "REAL":
-        return round(random.uniform(-1000.0, 1000.0), 2)
+        return round(random.uniform(-100000.0, 100000.0), 2)
     return None
 
 
@@ -163,18 +178,18 @@ def generate_constraint_for_column(column_type: str) -> Optional[ColumnConstrain
     """
     constraint_choice = random.random()
     
-    if constraint_choice < 0.15:  # 15% NOT NULL
+    if constraint_choice < 0.05:  # 5% NOT NULL
         return ColumnConstraint("NOT NULL")
-    elif constraint_choice < 0.25:  # 10% UNIQUE
+    elif constraint_choice < 0.15:  # 10% UNIQUE
         return ColumnConstraint("UNIQUE")
-    elif constraint_choice < 0.35:  # 10% DEFAULT value
+    elif constraint_choice < 0.25:  # 10% DEFAULT value
         if column_type == "INT":
             return ColumnConstraint("DEFAULT", str(random.randint(0, 100)))
         elif column_type == "TEXT":
             return ColumnConstraint("DEFAULT", f"'{random.choice(['default', 'test', 'value'])}'")
         elif column_type == "REAL":
             return ColumnConstraint("DEFAULT", str(round(random.uniform(0.0, 100.0), 2)))
-    elif constraint_choice < 0.42:  # 7% COLLATE
+    elif constraint_choice < 0.32:  # 7% COLLATE
         return ColumnConstraint("COLLATE", random.choice(COLLATION_TYPES))
     
     return None
@@ -365,7 +380,7 @@ def create_update_statement(schema: TableSchema, use_where: bool = True) -> str:
     statement = f"UPDATE {schema.table_name} SET {', '.join(set_clauses)}"
     
     if use_where and schema.get_column_names():
-        where_clause = create_where_condition(schema, num_conditions=1)
+        where_clause = create_where_condition(schema, num_conditions=random.randint(1,3))
         statement += f" WHERE {where_clause}"
     
     statement += ";"
@@ -419,6 +434,9 @@ def create_index_statement(
 def create_alter_table_statement(schema: TableSchema) -> Optional[str]:
     """
     Generate an ALTER TABLE ADD COLUMN statement.
+    
+    Note: Does NOT include UNIQUE constraint as SQLite does not support adding
+    UNIQUE columns to existing tables.
 
     Args:
         schema: TableSchema object defining the table structure
@@ -437,8 +455,12 @@ def create_alter_table_statement(schema: TableSchema) -> Optional[str]:
     
     col_def = f"{new_col_name} {new_col_type}"
     
-    # Optionally add a constraint
+    # Optionally add a constraint, but exclude UNIQUE (SQLite limitation)
     constraint = generate_constraint_for_column(new_col_type)
+    while constraint and constraint.constraint_type == "UNIQUE":
+        # Regenerate if UNIQUE was selected
+        constraint = generate_constraint_for_column(new_col_type)
+    
     if constraint:
         col_def += " " + constraint.to_sql()
     
@@ -515,6 +537,167 @@ def create_where_condition(
     return where_clause
 
 
+def create_subquery(
+    schema: TableSchema,
+    num_conditions: int = 1,
+    subquery_alias: str = "sub",
+) -> str:
+    """
+    Generate a simple subquery (without the surrounding parentheses).
+
+    Args:
+        schema: TableSchema object defining the table structure
+        num_conditions: Number of WHERE conditions (default: 1)
+        subquery_alias: Alias for the subquery (default: 'sub')
+
+    Returns:
+        SQL subquery statement
+
+    Example:
+        >>> stmt, schema = create_table_statement('t0', num_columns=2)
+        >>> subquery = create_subquery(schema)
+        >>> print(subquery)
+        SELECT * FROM t0 WHERE c0 > 5
+    """
+    select_all = True
+    select_part = "*"
+    
+    statement = f"SELECT {select_part} FROM {schema.table_name}"
+    
+    if schema.get_column_names() and num_conditions > 0:
+        where_clause = create_where_condition(schema, num_conditions=num_conditions)
+        statement += f" WHERE {where_clause}"
+    
+    return statement
+
+
+def create_insert_select_statement(
+    target_schema: TableSchema,
+    source_schema: TableSchema,
+    num_conditions: int = 1,
+) -> Optional[str]:
+    """
+    Generate an INSERT INTO ... SELECT statement.
+
+    Args:
+        target_schema: TableSchema object for the target table
+        source_schema: TableSchema object for the source table
+        num_conditions: Number of WHERE conditions in SELECT (default: 1)
+
+    Returns:
+        SQL INSERT INTO ... SELECT statement or None
+
+    Example:
+        >>> stmt1, schema1 = create_table_statement('t0', num_columns=2)
+        >>> stmt2, schema2 = create_table_statement('t1', num_columns=2)
+        >>> insert_select = create_insert_select_statement(schema1, schema2)
+        >>> print(insert_select)
+        INSERT INTO t0 SELECT * FROM t1 WHERE c0 > 5;
+    """
+    if not target_schema.get_column_names() or not source_schema.get_column_names():
+        return None
+    
+    # Get matching columns between tables
+    target_cols = target_schema.get_column_names()
+    source_cols = source_schema.get_column_names()
+    
+    # Use the minimum number of columns to avoid mismatch
+    num_cols = min(len(target_cols), len(source_cols))
+    cols_to_insert = target_cols[:num_cols]
+    cols_to_select = source_cols[:num_cols]
+    
+    select_part = ", ".join(cols_to_select) if cols_to_select else "*"
+    column_part = ", ".join(cols_to_insert) if cols_to_insert else ""
+    
+    statement = f"INSERT INTO {target_schema.table_name} "
+    if column_part:
+        statement += f"({column_part}) "
+    statement += f"SELECT {select_part} FROM {source_schema.table_name}"
+    
+    if source_schema.get_column_names() and num_conditions > 0 and random.random() < 0.6:
+        where_clause = create_where_condition(source_schema, num_conditions=num_conditions)
+        statement += f" WHERE {where_clause}"
+    
+    statement += ";"
+    return statement
+
+
+def create_join_select_statement(
+    base_schema: TableSchema,
+    join_schemas: List[TableSchema],
+) -> Optional[str]:
+    """
+    Generate a SELECT statement with JOINs across multiple tables.
+
+    Args:
+        base_schema: The primary table to select from
+        join_schemas: List of additional tables to join with
+
+    Returns:
+        SQL SELECT statement with JOINs or None
+
+    Example:
+        >>> stmt1, s1 = create_table_statement('t0', num_columns=2)
+        >>> stmt2, s2 = create_table_statement('t1', num_columns=2)
+        >>> join_stmt = create_join_select_statement(s1, [s2])
+        >>> print(join_stmt)
+        SELECT t0.c0, t1.c1 FROM t0 INNER JOIN t1 ON ...;
+    """
+    if not base_schema.get_column_names() or not join_schemas:
+        return None
+
+    # Build column list with table prefixes
+    selected_cols = []
+    
+    # Add columns from base table
+    base_cols = random.sample(
+        base_schema.get_column_names(),
+        k=random.randint(1, min(2, len(base_schema.get_column_names())))
+    )
+    selected_cols.extend([f"{base_schema.table_name}.{col}" for col in base_cols])
+    
+    # Add columns from join tables
+    for join_schema in join_schemas:
+        if join_schema.get_column_names():
+            join_cols = random.sample(
+                join_schema.get_column_names(),
+                k=random.randint(1, min(2, len(join_schema.get_column_names())))
+            )
+            selected_cols.extend([f"{join_schema.table_name}.{col}" for col in join_cols])
+    
+    select_part = ", ".join(selected_cols)
+    
+    statement = f"SELECT {select_part} FROM {base_schema.table_name}"
+    
+    # Add JOIN clauses
+    for join_schema in join_schemas:
+        join_type = random.choice(JOIN_TYPES)
+        # Simple join on first matching column names or just first column
+        base_join_col = base_schema.get_column_names()[0]
+        join_col = join_schema.get_column_names()[0]
+        statement += f" {join_type} {join_schema.table_name} ON {base_schema.table_name}.{base_join_col} = {join_schema.table_name}.{join_col}"
+    
+    # Optionally add WHERE clause
+    if random.random() < 0.5:
+        where_col = f"{base_schema.table_name}.{random.choice(base_schema.get_column_names())}"
+        where_value = random.randint(-100, 100)
+        statement += f" WHERE {where_col} > {where_value}"
+    
+    # Optionally add ORDER BY
+    if random.random() < 0.4:
+        order_col = random.choice(selected_cols)
+        direction = random.choice(["ASC", "DESC"])
+        statement += f" ORDER BY {order_col} {direction}"
+    
+    # Optionally add LIMIT
+    if random.random() < 0.3:
+        limit_value = random.randint(5, 50)
+        statement += f" LIMIT {limit_value}"
+    
+    statement += ";"
+    return statement
+
+
 def create_select_statement(
     schema: TableSchema,
     num_conditions: int = 1,
@@ -526,9 +709,10 @@ def create_select_statement(
     use_limit: bool = False,
     use_join: bool = False,
     join_schema: Optional[TableSchema] = None,
+    use_subquery: bool = False,
 ) -> str:
     """
-    Generate a SELECT statement for a table.
+    Generate a SELECT statement for a table or subquery.
 
     Args:
         schema: TableSchema object defining the table structure
@@ -541,6 +725,7 @@ def create_select_statement(
         use_limit: Whether to include LIMIT clause (default: False)
         use_join: Whether to include JOIN clause (default: False)
         join_schema: TableSchema for JOIN operations (default: None)
+        use_subquery: Whether to use a subquery in FROM clause (default: False)
 
     Returns:
         SQL SELECT statement
@@ -563,7 +748,12 @@ def create_select_statement(
         else:
             select_part = "*"
 
-    statement = f"SELECT {distinct_part}{select_part} FROM {schema.table_name}"
+    # Handle subquery in FROM clause
+    if use_subquery and schema.get_column_names():
+        subquery = create_subquery(schema, num_conditions=random.randint(0, 2))
+        statement = f"SELECT {distinct_part}{select_part} FROM ({subquery}) AS subq"
+    else:
+        statement = f"SELECT {distinct_part}{select_part} FROM {schema.table_name}"
     
     # Add JOIN if requested
     if use_join and join_schema:
@@ -571,7 +761,7 @@ def create_select_statement(
         statement += f" {join_type} {join_schema.table_name}"
     
     # Add WHERE clause
-    if use_where and schema.get_column_names():
+    if use_where and schema.get_column_names() and not use_subquery:
         where_clause = create_where_condition(schema, num_conditions=num_conditions)
         statement += f" WHERE {where_clause}"
     
@@ -601,38 +791,173 @@ def create_select_statement(
     return statement
 
 
-def generate_simple_workload(
-    num_tables: int = 1,
-    num_inserts_per_table: int = 3,
-    num_selects_per_table: int = 2,
-    seed: Optional[int] = None,
-    use_transactions: bool = True,
-    use_indexes: bool = True,
-    use_deletes: bool = True,
-    use_updates: bool = True,
-    use_alters: bool = True,
-    use_advanced_selects: bool = True,
-) -> GeneratedWorkload:
+def create_view_statement(
+    view_name: str,
+    base_schema: TableSchema,
+    join_schemas: Optional[List[TableSchema]] = None,
+    use_complex_select: bool = True,
+) -> Optional[str]:
     """
-    Generate a comprehensive workload with table creation, inserts, updates, deletes, indexes, and advanced selects.
+    Generate a CREATE VIEW statement with complex underlying SELECT.
+
+    A VIEW can be based on:
+    - Simple SELECT from a single table
+    - SELECT with WHERE conditions
+    - SELECT with JOINs across multiple tables
+    - SELECT with GROUP BY, ORDER BY, LIMIT
+    - SELECT with subqueries
 
     Args:
-        num_tables: Number of tables to create (default: 1)
-        num_inserts_per_table: Number of INSERT statements per table (default: 3)
-        num_selects_per_table: Number of SELECT statements per table (default: 2)
+        view_name: Name of the view to create
+        base_schema: Primary table for the view
+        join_schemas: Optional list of additional tables to join with
+        use_complex_select: Whether to use complex SELECT features (default: True)
+
+    Returns:
+        SQL CREATE VIEW statement or None
+
+    Example:
+        >>> stmt, schema = create_table_statement('t0', num_columns=2)
+        >>> view_stmt = create_view_statement('v_data', schema)
+        >>> print(view_stmt)
+        CREATE VIEW v_data AS SELECT * FROM t0 WHERE c0 > 10;
+    """
+    if not base_schema.get_column_names():
+        return None
+    
+    # Determine whether to use JOIN, subquery, or simple select
+    select_type = random.choice(["simple", "with_conditions", "subquery", "join"])
+    
+    if select_type == "simple":
+        # Simple SELECT
+        select_all = True
+        select_part = "*"
+        select_clause = f"SELECT {select_part} FROM {base_schema.table_name}"
+    
+    elif select_type == "with_conditions":
+        # SELECT with WHERE, ORDER BY, GROUP BY, etc.
+        select_all = random.random() < 0.6
+        if select_all:
+            select_part = "*"
+        else:
+            cols = random.sample(
+                base_schema.get_column_names(),
+                k=random.randint(1, min(3, len(base_schema.get_column_names())))
+            )
+            select_part = ", ".join(cols)
+        
+        select_clause = f"SELECT {select_part} FROM {base_schema.table_name}"
+        
+        # Add WHERE clause (50% chance)
+        if random.random() < 0.5 and base_schema.get_column_names():
+            where_clause = create_where_condition(base_schema, num_conditions=random.randint(1, 2))
+            select_clause += f" WHERE {where_clause}"
+        
+        # Add GROUP BY (30% chance)
+        if random.random() < 0.3 and base_schema.get_column_names():
+            group_cols = random.sample(
+                base_schema.get_column_names(),
+                k=random.randint(1, min(2, len(base_schema.get_column_names())))
+            )
+            select_clause += f" GROUP BY {', '.join(group_cols)}"
+        
+        # Add ORDER BY (50% chance)
+        if random.random() < 0.5 and base_schema.get_column_names():
+            order_cols = random.sample(
+                base_schema.get_column_names(),
+                k=random.randint(1, min(2, len(base_schema.get_column_names())))
+            )
+            order_directions = [random.choice(["ASC", "DESC"]) for _ in order_cols]
+            order_part = ", ".join(f"{col} {direction}" for col, direction in zip(order_cols, order_directions))
+            select_clause += f" ORDER BY {order_part}"
+        
+        # Add LIMIT (30% chance)
+        if random.random() < 0.3:
+            limit_value = random.randint(10, 100)
+            select_clause += f" LIMIT {limit_value}"
+    
+    elif select_type == "subquery" and use_complex_select:
+        # SELECT with subquery
+        subquery = create_subquery(base_schema, num_conditions=random.randint(0, 2))
+        
+        # Wrap subquery with additional SELECT features
+        select_features = []
+        if random.random() < 0.4:
+            select_features.append("DISTINCT")
+        
+        distinct_part = "DISTINCT " if select_features else ""
+        select_clause = f"SELECT {distinct_part}* FROM ({subquery}) AS v_sub"
+        
+        # Optionally add ORDER BY to outer query
+        if random.random() < 0.4:
+            select_clause += f" ORDER BY {random.choice(['v_sub.*', '1'])} {random.choice(['ASC', 'DESC'])}"
+        
+        # Optionally add LIMIT to outer query
+        if random.random() < 0.3:
+            select_clause += f" LIMIT {random.randint(10, 100)}"
+    
+    elif select_type == "join" and join_schemas and len(join_schemas) > 0 and use_complex_select:
+        # SELECT with JOINs
+        # Select columns from base table
+        base_cols = random.sample(
+            base_schema.get_column_names(),
+            k=random.randint(1, min(2, len(base_schema.get_column_names())))
+        )
+        selected_cols = [f"{base_schema.table_name}.{col}" for col in base_cols]
+        
+        # Add columns from join tables
+        for join_schema in join_schemas:
+            if join_schema.get_column_names():
+                join_cols = random.sample(
+                    join_schema.get_column_names(),
+                    k=random.randint(1, min(2, len(join_schema.get_column_names())))
+                )
+                selected_cols.extend([f"{join_schema.table_name}.{col}" for col in join_cols])
+        
+        select_part = ", ".join(selected_cols)
+        select_clause = f"SELECT {select_part} FROM {base_schema.table_name}"
+        
+        # Add JOIN clauses
+        for join_schema in join_schemas:
+            join_type = random.choice(JOIN_TYPES)
+            base_join_col = base_schema.get_column_names()[0]
+            join_col = join_schema.get_column_names()[0]
+            select_clause += f" {join_type} {join_schema.table_name} ON {base_schema.table_name}.{base_join_col} = {join_schema.table_name}.{join_col}"
+        
+        # Optional WHERE clause
+        if random.random() < 0.4:
+            where_col = f"{base_schema.table_name}.{random.choice(base_schema.get_column_names())}"
+            where_value = random.randint(-100, 100)
+            select_clause += f" WHERE {where_col} > {where_value}"
+    
+    else:
+        # Fallback to simple select
+        select_clause = f"SELECT * FROM {base_schema.table_name}"
+    
+    # Create the view statement
+    statement = f"CREATE VIEW {view_name} AS {select_clause};"
+    return statement
+
+
+def generate_simple_workload(
+    seed: Optional[int] = None,
+) -> GeneratedWorkload:
+    """
+    Generate a comprehensive workload with diverse statement types for fuzzing.
+    
+    Creates a single initial table, then loops multiple times generating random
+    statement types to maximize SQL diversity for better fuzzing coverage.
+    All other operations (indexes, inserts, additional tables) are randomly
+    generated within the main loop.
+
+    Args:
         seed: Random seed for reproducibility (default: None)
-        use_transactions: Whether to use BEGIN/COMMIT transactions (default: True)
-        use_indexes: Whether to create indexes (default: True)
-        use_deletes: Whether to generate DELETE statements (default: True)
-        use_updates: Whether to generate UPDATE statements (default: True)
-        use_alters: Whether to generate ALTER TABLE statements (default: True)
-        use_advanced_selects: Whether to use advanced SELECT features like ORDER BY, GROUP BY, DISTINCT, LIMIT (default: True)
 
     Returns:
         GeneratedWorkload object containing all generated SQL statements
 
     Example:
-        >>> workload = generate_simple_workload(num_tables=2, use_transactions=True, seed=42)
+        >>> workload = generate_simple_workload(seed=42)
         >>> print(workload.sql_text)
     """
     if seed is not None:
@@ -641,116 +966,158 @@ def generate_simple_workload(
     statements = []
     schemas = {}
     metadata = {
-        "num_tables": num_tables,
-        "num_inserts_per_table": num_inserts_per_table,
-        "num_selects_per_table": num_selects_per_table,
         "seed": seed,
-        "use_transactions": use_transactions,
-        "use_indexes": use_indexes,
-        "use_deletes": use_deletes,
-        "use_updates": use_updates,
-        "use_alters": use_alters,
-        "use_advanced_selects": use_advanced_selects,
     }
 
-    # Start transaction if enabled
-    # TODO: Re-enable transactions when needed
-    # if use_transactions and random.random() < 0.7:
-    #     statements.append("BEGIN;")
-    #     transaction_active = True
-    # else:
-    transaction_active = False
+    # Create exactly one initial table
+    table_name = generate_table_name(0)
+    statements.append(f"DROP TABLE IF EXISTS {table_name};")
+    create_stmt, schema = create_table_statement(table_name, num_columns=random.randint(2, 4))
+    statements.append(create_stmt)
+    schemas[table_name] = schema
 
-    # Create tables
-    for i in range(num_tables):
-        table_name = generate_table_name(i)
-        statements.append(f"DROP TABLE IF EXISTS {table_name};")
-
-        create_stmt, schema = create_table_statement(table_name, num_columns=random.randint(2, 4))
-        statements.append(create_stmt)
-        schemas[table_name] = schema
-
-        # Create indexes if enabled
-        if use_indexes:
-            num_indexes = random.randint(1, 3)
-            for j in range(num_indexes):
-                index_stmt = create_index_statement(schema, index_num=j, unique=random.random() < 0.3)
-                if index_stmt:
-                    statements.append(index_stmt)
-
-        # Insert data
-        for _ in range(num_inserts_per_table):
-            insert_stmt = create_insert_statement(schema, num_rows=random.randint(1, 5))
+    # Main loop: randomly generate diverse statements (7-12 iterations)
+    num_iterations = random.randint(7, 12)
+    schemas_list = list(schemas.values())
+    next_table_id = 1  # For creating new tables
+    next_view_id = 0  # For creating new views
+    
+    for iteration in range(num_iterations):
+        # Weight insertions higher early on, then decrease over iterations
+        insert_prob = (0.9 - (iteration / num_iterations) * 1.2)
+        select_prob =  (iteration / num_iterations) * 0.4
+        join_prob =  (iteration / num_iterations) * 0.5
+        
+        # Distribute remaining probability among other operations
+        remaining_prob = 1.0 - insert_prob
+        update_prob = insert_prob + (0.10 * remaining_prob)
+        delete_prob = update_prob + (0.08 * remaining_prob)
+        insert_select_prob = delete_prob + (0.08 * remaining_prob)
+        index_prob = insert_select_prob + (0.15 * remaining_prob)
+        create_table_prob = index_prob + (0.10 * remaining_prob)
+        create_view_prob = create_table_prob + (0.12 * remaining_prob)
+        alter_prob = 1.0
+        
+        # Choose a random statement type
+        rand_type = random.random()
+        
+        # Pick a random table for the operation
+        selected_schema = random.choice(schemas_list)
+        
+        if rand_type < insert_prob:
+            # INSERT statement (higher probability early on)
+            insert_stmt = create_insert_statement(selected_schema, num_rows=random.randint(1, 4))
             if insert_stmt:
                 statements.append(insert_stmt)
-
-        # Alter table if enabled (add a column)
-        if use_alters and random.random() < 0.5:
-            alter_stmt = create_alter_table_statement(schema)
+        
+        elif rand_type < update_prob:
+            # UPDATE statement
+            update_stmt = create_update_statement(selected_schema, use_where=random.random() < 0.8)
+            if update_stmt:
+                statements.append(update_stmt)
+        
+        elif rand_type < delete_prob:
+            # DELETE statement
+            delete_stmt = create_delete_statement(selected_schema, use_where=random.random() < 0.85)
+            if delete_stmt:
+                statements.append(delete_stmt)
+        
+        elif rand_type < select_prob:
+            # Simple SELECT with various features
+            num_conditions = random.randint(0, 2) if random.random() < 0.7 else 0
+            select_stmt = create_select_statement(
+                selected_schema,
+                num_conditions=num_conditions,
+                select_all=random.random() < 0.5,
+                use_where=num_conditions > 0,
+                use_order_by=random.random() < 0.4,
+                use_group_by=random.random() < 0.2,
+                use_distinct=random.random() < 0.2,
+                use_limit=random.random() < 0.4,
+                use_subquery=random.random() < 0.2,
+            )
+            statements.append(select_stmt)
+        
+        elif rand_type < join_prob and len(schemas_list) > 1:
+            # JOIN SELECT with multiple tables and columns
+            num_join_tables = random.randint(1, min(2, len(schemas_list) - 1))
+            join_tables = random.sample(
+                [s for s in schemas_list if s.table_name != selected_schema.table_name],
+                k=num_join_tables
+            )
+            if join_tables:
+                join_stmt = create_join_select_statement(selected_schema, join_tables)
+                if join_stmt:
+                    statements.append(join_stmt)
+        
+        elif rand_type < insert_select_prob and len(schemas_list) > 1:
+            # INSERT INTO ... SELECT
+            source_table = random.choice([s for s in schemas_list if s.table_name != selected_schema.table_name])
+            insert_select_stmt = create_insert_select_statement(
+                selected_schema,
+                source_table,
+                num_conditions=random.randint(0, 1)
+            )
+            if insert_select_stmt:
+                statements.append(insert_select_stmt)
+        
+        elif rand_type < index_prob:
+            # CREATE INDEX on a random table
+            index_stmt = create_index_statement(selected_schema, index_num=len(selected_schema.indexes), unique=random.random() < 0.3)
+            if index_stmt:
+                statements.append(index_stmt)
+        
+        elif rand_type < create_table_prob:
+            # CREATE a new table (adds to available tables for operations)
+            new_table_name = generate_table_name(next_table_id)
+            statements.append(f"DROP TABLE IF EXISTS {new_table_name};")
+            create_stmt, new_schema = create_table_statement(new_table_name, num_columns=random.randint(2, 4))
+            statements.append(create_stmt)
+            schemas[new_table_name] = new_schema
+            schemas_list = list(schemas.values())
+            next_table_id += 1
+        
+        elif rand_type < create_view_prob and len(schemas_list) > 0:
+            # CREATE VIEW with complex SELECT
+            view_name = f"v{next_view_id}"
+            base_table = random.choice(schemas_list)
+            
+            # Optionally include join tables for the view
+            join_tables = []
+            if len(schemas_list) > 1 and random.random() < 0.4:
+                num_join_tables = random.randint(1, min(2, len(schemas_list) - 1))
+                join_tables = random.sample(
+                    [s for s in schemas_list if s.table_name != base_table.table_name],
+                    k=num_join_tables
+                )
+            
+            view_stmt = create_view_statement(
+                view_name,
+                base_table,
+                join_schemas=join_tables if join_tables else None,
+                use_complex_select=True
+            )
+            if view_stmt:
+                statements.append(view_stmt)
+                next_view_id += 1
+        
+        elif random.random() < 0.6:
+            # ALTER TABLE (add column)
+            alter_stmt = create_alter_table_statement(selected_schema)
             if alter_stmt:
                 statements.append(alter_stmt)
-
-        # Update some rows if enabled
-        if use_updates:
-            num_updates = random.randint(1, 2)
-            for _ in range(num_updates):
-                update_stmt = create_update_statement(schema, use_where=random.random() < 0.8)
-                if update_stmt:
-                    statements.append(update_stmt)
-
-        # Delete some rows if enabled
-        if use_deletes:
-            num_deletes = random.randint(0, 2)
-            for _ in range(num_deletes):
-                delete_stmt = create_delete_statement(schema, use_where=random.random() < 0.9)
-                if delete_stmt:
-                    statements.append(delete_stmt)
-
-        # Create SELECT queries with various features
-        for _ in range(num_selects_per_table):
-            num_conditions = random.randint(1, 3) if random.random() < 0.8 else 0
-            
-            select_features = {}
-            if use_advanced_selects:
-                select_features = {
-                    "use_order_by": random.random() < 0.5,
-                    "use_group_by": random.random() < 0.3,
-                    "use_distinct": random.random() < 0.3,
-                    "use_limit": random.random() < 0.5,
-                    "use_join": False,  # Skip JOIN for single table for now
-                    "join_schema": None,
-                }
-            
+        
+        else:
+            # Complex SELECT with subquery as fallback
             select_stmt = create_select_statement(
-                schema,
-                num_conditions=num_conditions,
-                select_all=random.random() < 0.6,
-                use_where=num_conditions > 0,
-                **select_features
-            )
-            statements.append(select_stmt)
-
-    # Add some cross-table operations if we have multiple tables
-    if num_tables > 1 and use_advanced_selects:
-        tables_list = [schemas[generate_table_name(i)] for i in range(num_tables)]
-        # Randomly add a few more complex selects
-        for _ in range(random.randint(1, 3)):
-            base_table = random.choice(tables_list)
-            select_stmt = create_select_statement(
-                base_table,
+                selected_schema,
                 num_conditions=random.randint(0, 2),
-                select_all=True,
-                use_where=random.random() < 0.6,
+                use_where=True,
                 use_order_by=random.random() < 0.5,
-                use_limit=random.random() < 0.6,
+                use_limit=random.random() < 0.5,
+                use_subquery=True,
             )
             statements.append(select_stmt)
-
-    # End transaction if started
-    # TODO: Re-enable transactions when needed
-    # if transaction_active:
-    #     end_stmt = random.choice(["COMMIT;", "ROLLBACK;"])
-    #     statements.append(end_stmt)
 
     sql_text = "\n".join(statements) + "\n"
 
@@ -762,11 +1129,7 @@ def generate_simple_workload(
 
 
 def generate_workload(
-    num_tables: int = 1,
-    num_inserts_per_table: int = 3,
-    num_selects_per_table: int = 3,
     seed: Optional[int] = None,
-    use_advanced_features: bool = True,
 ) -> GeneratedWorkload:
     """
     Generate a default workload for testing.
@@ -774,24 +1137,9 @@ def generate_workload(
     This is the main entry point that produces a workload for fuzzing.
 
     Args:
-        num_tables: Number of tables to create (default: 1)
-        num_inserts_per_table: Number of INSERT statements per table (default: 3)
-        num_selects_per_table: Number of SELECT statements per table (default: 3)
         seed: Random seed for reproducibility, if None, generates random workload.
-        use_advanced_features: Whether to use advanced SQL features (default: True)
 
     Returns:
         GeneratedWorkload object
     """
-    return generate_simple_workload(
-        num_tables=num_tables,
-        num_inserts_per_table=num_inserts_per_table,
-        num_selects_per_table=num_selects_per_table,
-        seed=seed,
-        use_transactions=use_advanced_features,
-        use_indexes=use_advanced_features,
-        use_deletes=use_advanced_features,
-        use_updates=use_advanced_features,
-        use_alters=use_advanced_features,
-        use_advanced_selects=use_advanced_features,
-    )
+    return generate_simple_workload(seed=seed)
