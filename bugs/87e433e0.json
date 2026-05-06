@@ -1,0 +1,295 @@
+{
+  "workload_id": "87e433e0",
+  "workload": {
+    "sql_text": "DROP TABLE IF EXISTS t0;\nCREATE TABLE t0 (c0 REAL DEFAULT 76.64, c1 INT);\nINSERT INTO t0 (c0, c1) VALUES (-12221.64, 0);\nINSERT INTO t0 (c0, c1) VALUES (-49192.27, 9223372036854775807);\nDELETE FROM t0;\nINSERT INTO t0 (c0, c1) VALUES (37929.81, 0), (-24019.39, 9223372036854775807), (84723.72, 0);\nINSERT INTO t0 (c0, c1) VALUES (68883.65, -9), (92538.19, NULL), (94951.16, NULL);\nINSERT INTO t0 (c0, c1) VALUES (-43668.1, 9223372036854775807);\nINSERT INTO t0 (c0, c1) VALUES (31037.55, -9223372036854775808), (-5350.81, 0), (6864.84, -18), (-28773.72, -11);\nINSERT INTO t0 (c0, c1) VALUES (32417.6, -3), (-31413.17, 4), (-52473.69, 9223372036854775807);\nSELECT c1, c0 FROM t0 WHERE c0 > 281.17 LIMIT 18;\nCREATE INDEX IF NOT EXISTS i00 ON t0(c1);\nSELECT DISTINCT * FROM t0 ORDER BY c1 ASC, c0 ASC LIMIT 18;\nSELECT c1, SUM(c0), AVG(c0), AVG(DISTINCT c1) FROM t0 ORDER BY c1 ASC, c0 DESC;\n",
+    "statements": [
+      "DROP TABLE IF EXISTS t0;",
+      "CREATE TABLE t0 (c0 REAL DEFAULT 76.64, c1 INT);",
+      "INSERT INTO t0 (c0, c1) VALUES (-12221.64, 0);",
+      "INSERT INTO t0 (c0, c1) VALUES (-49192.27, 9223372036854775807);",
+      "DELETE FROM t0;",
+      "INSERT INTO t0 (c0, c1) VALUES (37929.81, 0), (-24019.39, 9223372036854775807), (84723.72, 0);",
+      "INSERT INTO t0 (c0, c1) VALUES (68883.65, -9), (92538.19, NULL), (94951.16, NULL);",
+      "INSERT INTO t0 (c0, c1) VALUES (-43668.1, 9223372036854775807);",
+      "INSERT INTO t0 (c0, c1) VALUES (31037.55, -9223372036854775808), (-5350.81, 0), (6864.84, -18), (-28773.72, -11);",
+      "INSERT INTO t0 (c0, c1) VALUES (32417.6, -3), (-31413.17, 4), (-52473.69, 9223372036854775807);",
+      "SELECT c1, c0 FROM t0 WHERE c0 > 281.17 LIMIT 18;",
+      "CREATE INDEX IF NOT EXISTS i00 ON t0(c1);",
+      "SELECT DISTINCT * FROM t0 ORDER BY c1 ASC, c0 ASC LIMIT 18;",
+      "SELECT c1, SUM(c0), AVG(c0), AVG(DISTINCT c1) FROM t0 ORDER BY c1 ASC, c0 DESC;"
+    ],
+    "metadata": {
+      "seed": null
+    }
+  },
+  "patched": {
+    "engine": "/usr/bin/sqlite3-3.39.4",
+    "statements": [
+      {
+        "stmt_idx": 0,
+        "sql": "DROP TABLE IF EXISTS t0;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.156563000222377
+      },
+      {
+        "stmt_idx": 1,
+        "sql": "CREATE TABLE t0 (c0 REAL DEFAULT 76.64, c1 INT);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 6.042218999937177
+      },
+      {
+        "stmt_idx": 2,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (-12221.64, 0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.176429000130156
+      },
+      {
+        "stmt_idx": 3,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (-49192.27, 9223372036854775807);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.302411999764445
+      },
+      {
+        "stmt_idx": 4,
+        "sql": "DELETE FROM t0;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 4.878759000348509
+      },
+      {
+        "stmt_idx": 5,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (37929.81, 0), (-24019.39, 9223372036854775807), (84723.72, 0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.3282170001693885
+      },
+      {
+        "stmt_idx": 6,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (68883.65, -9), (92538.19, NULL), (94951.16, NULL);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.910975000006147
+      },
+      {
+        "stmt_idx": 7,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (-43668.1, 9223372036854775807);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.428522000329394
+      },
+      {
+        "stmt_idx": 8,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (31037.55, -9223372036854775808), (-5350.81, 0), (6864.84, -18), (-28773.72, -11);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.464353000206756
+      },
+      {
+        "stmt_idx": 9,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (32417.6, -3), (-31413.17, 4), (-52473.69, 9223372036854775807);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.332640999768046
+      },
+      {
+        "stmt_idx": 10,
+        "sql": "SELECT c1, c0 FROM t0 WHERE c0 > 281.17 LIMIT 18;",
+        "returncode": 0,
+        "stdout": "0|37929.81\n0|84723.72\n-9|68883.65\n|92538.19\n|94951.16\n-9223372036854775808|31037.55\n-18|6864.84\n-3|32417.6\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.3357539992284728
+      },
+      {
+        "stmt_idx": 11,
+        "sql": "CREATE INDEX IF NOT EXISTS i00 ON t0(c1);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 7.071689000440529
+      },
+      {
+        "stmt_idx": 12,
+        "sql": "SELECT DISTINCT * FROM t0 ORDER BY c1 ASC, c0 ASC LIMIT 18;",
+        "returncode": 0,
+        "stdout": "92538.19|\n94951.16|\n31037.55|-9223372036854775808\n6864.84|-18\n-28773.72|-11\n68883.65|-9\n32417.6|-3\n-5350.81|0\n37929.81|0\n84723.72|0\n-31413.17|4\n-52473.69|9223372036854775807\n-43668.1|9223372036854775807\n-24019.39|9223372036854775807\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.7415120000805473
+      },
+      {
+        "stmt_idx": 13,
+        "sql": "SELECT c1, SUM(c0), AVG(c0), AVG(DISTINCT c1) FROM t0 ORDER BY c1 ASC, c0 DESC;",
+        "returncode": 0,
+        "stdout": "0|263647.64|18831.9742857143|-3.5\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.7344810003123712
+      }
+    ],
+    "total_duration_ms": 61.979415999303455,
+    "timed_out": false,
+    "crashed": false
+  },
+  "vanilla": {
+    "engine": "/usr/bin/sqlite3",
+    "statements": [
+      {
+        "stmt_idx": 0,
+        "sql": "DROP TABLE IF EXISTS t0;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.4146829998935573
+      },
+      {
+        "stmt_idx": 1,
+        "sql": "CREATE TABLE t0 (c0 REAL DEFAULT 76.64, c1 INT);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 6.168348999381124
+      },
+      {
+        "stmt_idx": 2,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (-12221.64, 0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.482010999912745
+      },
+      {
+        "stmt_idx": 3,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (-49192.27, 9223372036854775807);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.6930239998109755
+      },
+      {
+        "stmt_idx": 4,
+        "sql": "DELETE FROM t0;",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.437239999992016
+      },
+      {
+        "stmt_idx": 5,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (37929.81, 0), (-24019.39, 9223372036854775807), (84723.72, 0);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 4.975453000042762
+      },
+      {
+        "stmt_idx": 6,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (68883.65, -9), (92538.19, NULL), (94951.16, NULL);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 4.6282370003609685
+      },
+      {
+        "stmt_idx": 7,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (-43668.1, 9223372036854775807);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 4.08629000048677
+      },
+      {
+        "stmt_idx": 8,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (31037.55, -9223372036854775808), (-5350.81, 0), (6864.84, -18), (-28773.72, -11);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 4.509511999458482
+      },
+      {
+        "stmt_idx": 9,
+        "sql": "INSERT INTO t0 (c0, c1) VALUES (32417.6, -3), (-31413.17, 4), (-52473.69, 9223372036854775807);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 4.294110000046203
+      },
+      {
+        "stmt_idx": 10,
+        "sql": "SELECT c1, c0 FROM t0 WHERE c0 > 281.17 LIMIT 18;",
+        "returncode": 0,
+        "stdout": "0|37929.81\n0|84723.72\n-9|68883.65\n|92538.19\n|94951.16\n-9223372036854775808|31037.55\n-18|6864.84\n-3|32417.6\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.1083970002800925
+      },
+      {
+        "stmt_idx": 11,
+        "sql": "CREATE INDEX IF NOT EXISTS i00 ON t0(c1);",
+        "returncode": 0,
+        "stdout": "",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 5.450931000268611
+      },
+      {
+        "stmt_idx": 12,
+        "sql": "SELECT DISTINCT * FROM t0 ORDER BY c1 ASC, c0 ASC LIMIT 18;",
+        "returncode": 0,
+        "stdout": "92538.19|\n94951.16|\n31037.55|-9223372036854775808\n6864.84|-18\n-28773.72|-11\n68883.65|-9\n32417.6|-3\n-5350.81|0\n37929.81|0\n84723.72|0\n-31413.17|4\n-52473.69|9223372036854775807\n-43668.1|9223372036854775807\n-24019.39|9223372036854775807\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.2768449996656273
+      },
+      {
+        "stmt_idx": 13,
+        "sql": "SELECT c1, SUM(c0), AVG(c0), AVG(DISTINCT c1) FROM t0 ORDER BY c1 ASC, c0 DESC;",
+        "returncode": 0,
+        "stdout": "0|263647.64|18831.9742857143|-4.75\n",
+        "stderr": "",
+        "timed_out": false,
+        "duration_ms": 1.1435139995228383
+      }
+    ],
+    "total_duration_ms": 55.722989999594574,
+    "timed_out": false,
+    "crashed": false
+  },
+  "classification": "mismatch",
+  "reason": "Stmt 13 row set differs"
+}

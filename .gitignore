@@ -13,6 +13,8 @@ build/
 .vscode/
 .DS_Store
 
+/seeds
+
 Task description.pdf
 faq_guide.pdf
 

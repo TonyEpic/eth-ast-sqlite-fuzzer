@@ -17,19 +17,22 @@ Supports:
 - Advanced operators (BETWEEN, IN, LIKE, COLLATE)
 """
 
-# TODO -> IN, VIEW, DROP col, PRAGMA, ANALYZE, WITHOUT, aggregate, Transactions, String conversion
+# TODO -> IN, VIEW, DROP col, PRAGMA, ANALYZE, WITHOUT, aggregate, Transactions
 
 import random
 import string
 from typing import List, Dict, Optional, Any, Tuple, Set
 from test_db.interfaces import GeneratedWorkload
-from test_db.generator.schema import DatabaseSchema, TableSchema, ColumnConstraint
-from test_db.generator.clauses import get_relation
-from test_db.generator.expressions import generate_filter_expression
 
 
 # SQLite data types
 SQLITE_TYPES = ["INT", "TEXT", "REAL"]
+
+# Comparison operators for WHERE clauses
+COMPARISON_OPS = ["=", "!=", "<", ">", "<=", ">=", "LIKE", "IS", "IS NOT", "IN", "BETWEEN"]
+
+# Logical operators
+LOGICAL_OPS = ["AND", "OR"]
 
 # Aggregate functions
 AGGREGATE_FUNCTIONS = ["COUNT", "SUM", "AVG", "MIN", "MAX"]
@@ -42,6 +45,69 @@ JOIN_TYPES = ["INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN"]
 
 # Constraint types
 CONSTRAINT_TYPES = ["PRIMARY KEY", "UNIQUE", "NOT NULL", "DEFAULT", "CHECK", "COLLATE"]
+
+
+class ColumnConstraint:
+    """Represents a column constraint."""
+
+    def __init__(self, constraint_type: str, value: Optional[str] = None):
+        """
+        Args:
+            constraint_type: Type of constraint (PRIMARY KEY, NOT NULL, UNIQUE, etc.)
+            value: Optional value for the constraint (e.g., default value)
+        """
+        self.constraint_type = constraint_type
+        self.value = value
+
+    def to_sql(self) -> str:
+        """Convert constraint to SQL fragment."""
+        if self.constraint_type == "DEFAULT":
+            return f"DEFAULT {self.value}"
+        elif self.constraint_type == "COLLATE":
+            return f"COLLATE {self.value}"
+        elif self.constraint_type == "CHECK":
+            return f"CHECK ({self.value})"
+        else:
+            return self.constraint_type
+
+
+class TableSchema:
+    """Represents a table schema for generation purposes."""
+
+    def __init__(self, table_name: str, columns: Dict[str, str], 
+                 constraints: Optional[Dict[str, List[ColumnConstraint]]] = None,
+                 primary_key: Optional[str] = None):
+        """
+        Args:
+            table_name: Name of the table (e.g., 't0')
+            columns: Dict mapping column names to their types (e.g., {'c0': 'INT', 'c1': 'TEXT'})
+            constraints: Dict mapping column names to lists of ColumnConstraint objects
+            primary_key: Name of the primary key column, if any
+        """
+        self.table_name = table_name
+        self.columns = columns
+        self.constraints = constraints or {}
+        self.primary_key = primary_key
+        self.indexes: List[str] = []  # Track created indexes
+
+    def get_column_names(self) -> List[str]:
+        """Returns list of column names."""
+        return list(self.columns.keys())
+
+    def get_column_types(self) -> List[str]:
+        """Returns list of column types."""
+        return list(self.columns.values())
+    
+    def add_constraint(self, column_name: str, constraint: ColumnConstraint) -> None:
+        """Add a constraint to a column."""
+        if column_name not in self.constraints:
+            self.constraints[column_name] = []
+        self.constraints[column_name].append(constraint)
+    
+    def add_index(self, index_name: str) -> None:
+        """Track a created index."""
+        self.indexes.append(index_name)
+
 
 def generate_table_name(index: int = 0) -> str:
     """
@@ -81,16 +147,16 @@ def generate_random_value(data_type: str) -> Any:
     """
     if data_type == "INT":
         threshold = random.random()
-        if threshold < 0.2:
+        if threshold < 0.3:
             return 0
-        elif threshold < 0.25:
+        elif threshold < 0.35:
             return 2**63 - 1  # Max Integer
-        elif threshold < 0.3:
+        elif threshold < 0.4:
             return -(2**63)  # Min Integer
         else:
-            return random.randint(-20, 20)
+            return random.randint(-1000, 1000)
     elif data_type == "TEXT":
-        if random.random() < 0.2:
+        if 0.3 < random.random():
           return "test-text"
         else:
           length = random.randint(1, 10)
@@ -221,18 +287,16 @@ def create_insert_statement(
             col_name = column_names[i]
             # Don't add NULL to NOT NULL columns or primary keys
             has_not_null = False
-            is_unique = False
             if col_name in schema.constraints:
                 for constraint in schema.constraints[col_name]:
                     if constraint.constraint_type == "NOT NULL":
                         has_not_null = True
-                    if constraint.constraint_type == "UNIQUE":
-                        is_unique = True
+                        break
             
             if col_name == schema.primary_key:
                 # Auto-increment or use a value
                 row_values.append(str(random.randint(1, 10000)))
-            elif include_nulls and not has_not_null and not is_unique and random.random() < 0.1:
+            elif include_nulls and not has_not_null and random.random() < 0.05:
                 row_values.append("NULL")
             else:
                 value = generate_random_value(col_type)
@@ -303,13 +367,6 @@ def create_update_statement(schema: TableSchema, use_where: bool = True) -> str:
     
     set_clauses = []
     for col_name in columns:
-        if col_name == schema.primary_key:
-            continue
-        if col_name in schema.constraints:
-            for constraint in schema.constraints[col_name]:
-                if constraint.constraint_type == "UNIQUE":
-                    continue
-
         col_idx = schema.get_column_names().index(col_name)
         col_type = schema.get_column_types()[col_idx]
         value = generate_random_value(col_type)
@@ -320,9 +377,6 @@ def create_update_statement(schema: TableSchema, use_where: bool = True) -> str:
         else:
             set_clauses.append(f"{col_name} = {value if value is not None else 'NULL'}")
     
-    if set_clauses == []:
-        return ""
-
     statement = f"UPDATE {schema.table_name} SET {', '.join(set_clauses)}"
     
     if use_where and schema.get_column_names():
@@ -403,7 +457,7 @@ def create_alter_table_statement(schema: TableSchema) -> Optional[str]:
     
     # Optionally add a constraint, but exclude UNIQUE (SQLite limitation)
     constraint = generate_constraint_for_column(new_col_type)
-    while constraint and (constraint.constraint_type == "UNIQUE" or constraint.constraint_type == "NOT NULL"):
+    while constraint and constraint.constraint_type == "UNIQUE":
         # Regenerate if UNIQUE was selected
         constraint = generate_constraint_for_column(new_col_type)
     
@@ -431,21 +485,95 @@ def create_where_condition(
 
     Returns:
         SQL WHERE condition (without the WHERE keyword)
+
+    Example:
+        >>> stmt, schema = create_table_statement('t0', num_columns=2)
+        >>> condition = create_where_condition(schema, num_conditions=2)
+        >>> print(f"SELECT * FROM {schema.table_name} WHERE {condition}")
+        SELECT * FROM t0 WHERE c0 > 5 AND c1 LIKE '%abc%';
     """
     if not schema.get_column_names():
         return "1=1"
+    
+    conditions = []
+    column_names = schema.get_column_names()
 
-    return generate_filter_expression(
-        schema,
-        num_conditions=num_conditions,
-        use_logical_ops=use_logical_ops,
-    )
+    for _ in range(num_conditions):
+        col_name = random.choice(column_names)
+        operator = random.choice(COMPARISON_OPS)
+
+        # Generate value based on operator
+        if operator == "IS" or operator == "IS NOT":
+            value = "NULL"
+        elif operator == "LIKE":
+            value = f"'%{random.choice(string.ascii_letters)}%'"
+        elif operator == "IN":
+            # Generate a list of values
+            in_list = ", ".join(str(random.randint(-100, 100)) for _ in range(random.randint(1, 3)))
+            value = f"({in_list})"
+        elif operator == "BETWEEN":
+            # BETWEEN requires two values
+            val1 = random.randint(-100, 50)
+            val2 = random.randint(50, 100)
+            if val1 > val2:
+                val1, val2 = val2, val1
+            condition = f"{col_name} BETWEEN {val1} AND {val2}"
+            conditions.append(condition)
+            continue
+        else:
+            # Use a simple numeric value
+            value = str(random.randint(-100, 100))
+
+        condition = f"{col_name} {operator} {value}"
+        conditions.append(condition)
+
+    # Join conditions with AND/OR
+    if use_logical_ops and len(conditions) > 1:
+        logical_op = random.choice(LOGICAL_OPS)
+        where_clause = f" {logical_op} ".join(conditions)
+    else:
+        where_clause = conditions[0] if conditions else "1=1"
+
+    return where_clause
+
+
+def create_subquery(
+    schema: TableSchema,
+    num_conditions: int = 1,
+    subquery_alias: str = "sub",
+) -> str:
+    """
+    Generate a simple subquery (without the surrounding parentheses).
+
+    Args:
+        schema: TableSchema object defining the table structure
+        num_conditions: Number of WHERE conditions (default: 1)
+        subquery_alias: Alias for the subquery (default: 'sub')
+
+    Returns:
+        SQL subquery statement
+
+    Example:
+        >>> stmt, schema = create_table_statement('t0', num_columns=2)
+        >>> subquery = create_subquery(schema)
+        >>> print(subquery)
+        SELECT * FROM t0 WHERE c0 > 5
+    """
+    select_all = True
+    select_part = "*"
+    
+    statement = f"SELECT {select_part} FROM {schema.table_name}"
+    
+    if schema.get_column_names() and num_conditions > 0:
+        where_clause = create_where_condition(schema, num_conditions=num_conditions)
+        statement += f" WHERE {where_clause}"
+    
+    return statement
 
 
 def create_insert_select_statement(
     target_schema: TableSchema,
     source_schema: TableSchema,
-    database_schema: Optional['DatabaseSchema'] = None,
     num_conditions: int = 1,
 ) -> Optional[str]:
     """
@@ -454,54 +582,124 @@ def create_insert_select_statement(
     Args:
         target_schema: TableSchema object for the target table
         source_schema: TableSchema object for the source table
-        database_schema: DatabaseSchema instance for relation building
         num_conditions: Number of WHERE conditions in SELECT (default: 1)
 
     Returns:
         SQL INSERT INTO ... SELECT statement or None
+
+    Example:
+        >>> stmt1, schema1 = create_table_statement('t0', num_columns=2)
+        >>> stmt2, schema2 = create_table_statement('t1', num_columns=2)
+        >>> insert_select = create_insert_select_statement(schema1, schema2)
+        >>> print(insert_select)
+        INSERT INTO t0 SELECT * FROM t1 WHERE c0 > 5;
     """
     if not target_schema.get_column_names() or not source_schema.get_column_names():
         return None
-
+    
     # Get matching columns between tables
     target_cols = target_schema.get_column_names()
     source_cols = source_schema.get_column_names()
+    
+    # Use the minimum number of columns to avoid mismatch
+    num_cols = min(len(target_cols), len(source_cols))
+    cols_to_insert = target_cols[:num_cols]
+    cols_to_select = source_cols[:num_cols]
+    
+    select_part = ", ".join(cols_to_select) if cols_to_select else "*"
+    column_part = ", ".join(cols_to_insert) if cols_to_insert else ""
+    
+    statement = f"INSERT INTO {target_schema.table_name} "
+    if column_part:
+        statement += f"({column_part}) "
+    statement += f"SELECT {select_part} FROM {source_schema.table_name}"
+    
+    if source_schema.get_column_names() and num_conditions > 0 and random.random() < 0.6:
+        where_clause = create_where_condition(source_schema, num_conditions=num_conditions)
+        statement += f" WHERE {where_clause}"
+    
+    statement += ";"
+    return statement
 
-    # Use all columns if they match in count, otherwise use minimum
-    if len(target_cols) == len(source_cols):
-        insert_cols = target_cols
-        select_cols = source_cols
-    else:
-        min_cols = min(len(target_cols), len(source_cols))
-        insert_cols = target_cols[:min_cols]
-        select_cols = source_cols[:min_cols]
 
-    insert_part = ", ".join(insert_cols)
+def create_join_select_statement(
+    base_schema: TableSchema,
+    join_schemas: List[TableSchema],
+) -> Optional[str]:
+    """
+    Generate a SELECT statement with JOINs across multiple tables.
 
-    # Generate SELECT statement for the source
-    select_stmt = create_select_statement(
-        source_schema,
-        database_schema=database_schema,
-        num_conditions=num_conditions,
-        select_all=False,  # Use specific columns
-        use_where=num_conditions > 0,
-        use_order_by=False,
-        use_group_by=False,
-        use_distinct=False,
-        use_limit=False,
-        use_aggregates=False,
+    Args:
+        base_schema: The primary table to select from
+        join_schemas: List of additional tables to join with
+
+    Returns:
+        SQL SELECT statement with JOINs or None
+
+    Example:
+        >>> stmt1, s1 = create_table_statement('t0', num_columns=2)
+        >>> stmt2, s2 = create_table_statement('t1', num_columns=2)
+        >>> join_stmt = create_join_select_statement(s1, [s2])
+        >>> print(join_stmt)
+        SELECT t0.c0, t1.c1 FROM t0 INNER JOIN t1 ON ...;
+    """
+    if not base_schema.get_column_names() or not join_schemas:
+        return None
+
+    # Build column list with table prefixes
+    selected_cols = []
+    
+    # Add columns from base table
+    base_cols = random.sample(
+        base_schema.get_column_names(),
+        k=random.randint(1, min(2, len(base_schema.get_column_names())))
     )
-
-    # Extract the SELECT clause (remove FROM and beyond for INSERT ... SELECT)
-    select_clause = select_stmt.split(" FROM ")[1].rstrip(";")
-
-    statement = f"INSERT INTO {target_schema.table_name} ({insert_part}) SELECT {', '.join(select_cols)} FROM {select_clause};"
+    selected_cols.extend([f"{base_schema.table_name}.{col}" for col in base_cols])
+    
+    # Add columns from join tables
+    for join_schema in join_schemas:
+        if join_schema.get_column_names():
+            join_cols = random.sample(
+                join_schema.get_column_names(),
+                k=random.randint(1, min(2, len(join_schema.get_column_names())))
+            )
+            selected_cols.extend([f"{join_schema.table_name}.{col}" for col in join_cols])
+    
+    select_part = ", ".join(selected_cols)
+    
+    statement = f"SELECT {select_part} FROM {base_schema.table_name}"
+    
+    # Add JOIN clauses
+    for join_schema in join_schemas:
+        join_type = random.choice(JOIN_TYPES)
+        # Simple join on first matching column names or just first column
+        base_join_col = base_schema.get_column_names()[0]
+        join_col = join_schema.get_column_names()[0]
+        statement += f" {join_type} {join_schema.table_name} ON {base_schema.table_name}.{base_join_col} = {join_schema.table_name}.{join_col}"
+    
+    # Optionally add WHERE clause
+    if random.random() < 0.5:
+        where_col = f"{base_schema.table_name}.{random.choice(base_schema.get_column_names())}"
+        where_value = random.randint(-100, 100)
+        statement += f" WHERE {where_col} > {where_value}"
+    
+    # Optionally add ORDER BY
+    if random.random() < 0.4:
+        order_col = random.choice(selected_cols)
+        direction = random.choice(["ASC", "DESC"])
+        statement += f" ORDER BY {order_col} {direction}"
+    
+    # Optionally add LIMIT
+    if random.random() < 0.3:
+        limit_value = random.randint(5, 50)
+        statement += f" LIMIT {limit_value}"
+    
+    statement += ";"
     return statement
 
 
 def create_select_statement(
     schema: TableSchema,
-    database_schema: Optional['DatabaseSchema'] = None,
     num_conditions: int = 1,
     select_all: bool = True,
     use_where: bool = True,
@@ -509,111 +707,81 @@ def create_select_statement(
     use_group_by: bool = False,
     use_distinct: bool = False,
     use_limit: bool = False,
-    use_aggregates: bool = False,
-    relation: Optional[str] = None,
-    depth: Optional[int] = 1
+    use_join: bool = False,
+    join_schema: Optional[TableSchema] = None,
+    use_subquery: bool = False,
 ) -> str:
     """
-    Generate a SELECT statement using relations from clauses.py.
+    Generate a SELECT statement for a table or subquery.
 
     Args:
         schema: TableSchema object defining the table structure
-        database_schema: DatabaseSchema instance for relation building
         num_conditions: Number of WHERE conditions (default: 1)
-        select_all: Whether to select all columns or specific columns/aggregates (default: True)
+        select_all: Whether to select all columns or specific columns (default: True)
         use_where: Whether to include a WHERE clause (default: True)
         use_order_by: Whether to include ORDER BY clause (default: False)
         use_group_by: Whether to include GROUP BY clause (default: False)
         use_distinct: Whether to include DISTINCT keyword (default: False)
         use_limit: Whether to include LIMIT clause (default: False)
-        use_aggregates: Whether to include aggregate functions (default: False)
-        relation: Optional relation string to use in FROM clause (if not provided, will be auto-generated)
+        use_join: Whether to include JOIN clause (default: False)
+        join_schema: TableSchema for JOIN operations (default: None)
+        use_subquery: Whether to use a subquery in FROM clause (default: False)
 
     Returns:
         SQL SELECT statement
+
+    Example:
+        >>> stmt, schema = create_table_statement('t0', num_columns=2)
+        >>> select_stmt = create_select_statement(schema, use_order_by=True, use_limit=True)
+        >>> print(select_stmt)
+        SELECT * FROM t0 WHERE c0 > 5 ORDER BY c1 LIMIT 10;
     """
     distinct_part = "DISTINCT " if use_distinct else ""
-
-    # Use provided relation or get it from clauses.py (may include JOINs or subqueries)
-    if relation is None:
-        relation = schema.table_name  # fallback
-        if database_schema:
-            try:
-                relation = get_relation(
-                    database_schema,
-                    select_builder=lambda depth: create_select_statement(
-                        schema,
-                        database_schema=None,  # Avoid recursion
-                        num_conditions=random.randint(0, 2),
-                        use_where=True,
-                        use_order_by=False,
-                        use_limit=False,
-                        use_aggregates=False,
-                    ),
-                    max_depth=2,
-                    allow_joins=True,
-                    allow_views=False,
-                )
-            except Exception:
-                pass  # fallback to table name
-
-    # Build SELECT clause
+    
     if select_all:
         select_part = "*"
     else:
-        # Mix of columns and aggregates
-        items = []
-        available_cols = schema.get_column_names()
+        # Randomly select some columns
+        if schema.get_column_names():
+            columns = random.sample(schema.get_column_names(), k=random.randint(1, min(2, len(schema.get_column_names()))))
+            select_part = ", ".join(columns)
+        else:
+            select_part = "*"
 
-        if available_cols:
-            # Add some columns
-            num_cols = random.randint(1, min(3, len(available_cols)))
-            selected_cols = random.sample(available_cols, k=num_cols)
-            """ for i in range(len(selected_cols)):
-                selected_cols[i] = schema.table_name + "." + selected_cols[i] """
-            items.extend(selected_cols)
-
-            # Add aggregates if requested
-            if use_aggregates and random.random() < 0.6:
-                from test_db.generator.expressions import generate_aggregate_expression
-                num_aggregates = random.randint(1, 3)
-                for _ in range(num_aggregates):
-                    items.append(generate_aggregate_expression(schema))
-
-        select_part = ", ".join(items) if items else "*"
-
-    statement = f"SELECT {distinct_part}{select_part} FROM {relation}"
-
+    # Handle subquery in FROM clause
+    if use_subquery and schema.get_column_names():
+        subquery = create_subquery(schema, num_conditions=random.randint(0, 2))
+        statement = f"SELECT {distinct_part}{select_part} FROM ({subquery}) AS subq"
+    else:
+        statement = f"SELECT {distinct_part}{select_part} FROM {schema.table_name}"
+    
+    # Add JOIN if requested
+    if use_join and join_schema:
+        join_type = random.choice(JOIN_TYPES)
+        statement += f" {join_type} {join_schema.table_name}"
+    
     # Add WHERE clause
-    if use_where and schema.get_column_names():
+    if use_where and schema.get_column_names() and not use_subquery:
         where_clause = create_where_condition(schema, num_conditions=num_conditions)
         statement += f" WHERE {where_clause}"
-
+    
     # Add GROUP BY clause
     if use_group_by and schema.get_column_names():
         group_cols = random.sample(schema.get_column_names(), k=random.randint(1, min(2, len(schema.get_column_names()))))
         statement += f" GROUP BY {', '.join(group_cols)}"
-
-        # Add HAVING clause sometimes when GROUP BY is used
-        if use_aggregates and random.random() < 0.4:
-            from test_db.generator.expressions import generate_aggregate_expression
-            having_expr = generate_aggregate_expression(schema)
-            having_op = random.choice([">", "<", ">=", "<=", "="])
-            having_value = random.randint(1, 100)
-            statement += f" HAVING {having_expr} {having_op} {having_value}"
-
+    
     # Add ORDER BY clause
     if use_order_by and schema.get_column_names():
         order_cols = random.sample(schema.get_column_names(), k=random.randint(1, min(2, len(schema.get_column_names()))))
         order_directions = [random.choice(["ASC", "DESC"]) for _ in order_cols]
         order_part = ", ".join(f"{col} {direction}" for col, direction in zip(order_cols, order_directions))
         statement += f" ORDER BY {order_part}"
-
+    
     # Add LIMIT clause
     if use_limit:
         limit_value = random.randint(1, 100)
         statement += f" LIMIT {limit_value}"
-
+        
         # Optionally add OFFSET
         if random.random() < 0.3:
             offset_value = random.randint(0, 50)
@@ -626,67 +794,146 @@ def create_select_statement(
 def create_view_statement(
     view_name: str,
     base_schema: TableSchema,
-    database_schema: Optional['DatabaseSchema'] = None,
-    schemas_list: Optional[List[TableSchema]] = None,
+    join_schemas: Optional[List[TableSchema]] = None,
     use_complex_select: bool = True,
 ) -> Optional[str]:
     """
     Generate a CREATE VIEW statement with complex underlying SELECT.
 
-    Uses get_relation() to build diverse FROM clauses (tables, JOINs, subqueries).
-    The underlying SELECT can include WHERE, GROUP BY, ORDER BY, LIMIT, and DISTINCT.
+    A VIEW can be based on:
+    - Simple SELECT from a single table
+    - SELECT with WHERE conditions
+    - SELECT with JOINs across multiple tables
+    - SELECT with GROUP BY, ORDER BY, LIMIT
+    - SELECT with subqueries
 
     Args:
         view_name: Name of the view to create
         base_schema: Primary table for the view
-        database_schema: DatabaseSchema instance for relation building (optional)
-        schemas_list: List of available table schemas for JOIN operations (optional)
+        join_schemas: Optional list of additional tables to join with
         use_complex_select: Whether to use complex SELECT features (default: True)
 
     Returns:
         SQL CREATE VIEW statement or None
+
+    Example:
+        >>> stmt, schema = create_table_statement('t0', num_columns=2)
+        >>> view_stmt = create_view_statement('v_data', schema)
+        >>> print(view_stmt)
+        CREATE VIEW v_data AS SELECT * FROM t0 WHERE c0 > 10;
     """
     if not base_schema.get_column_names():
         return None
-
-    # Build the relation (table name, JOIN expression, or subquery)
-    relation = None
-    if database_schema and schemas_list and random.random() < 0.5 and use_complex_select:
-        try:
-            relation = get_relation(
-                database_schema,
-                select_builder=lambda depth: create_select_statement(
-                    base_schema,
-                    num_conditions=random.randint(0, 2),
-                    use_where=True,
-                    use_order_by=False,
-                    use_limit=False,
-                    use_subquery=False,
-                    relation=None,
-                ),
-                max_depth=2,
+    
+    # Determine whether to use JOIN, subquery, or simple select
+    select_type = random.choice(["simple", "with_conditions", "subquery", "join"])
+    
+    if select_type == "simple":
+        # Simple SELECT
+        select_all = True
+        select_part = "*"
+        select_clause = f"SELECT {select_part} FROM {base_schema.table_name}"
+    
+    elif select_type == "with_conditions":
+        # SELECT with WHERE, ORDER BY, GROUP BY, etc.
+        select_all = random.random() < 0.6
+        if select_all:
+            select_part = "*"
+        else:
+            cols = random.sample(
+                base_schema.get_column_names(),
+                k=random.randint(1, min(3, len(base_schema.get_column_names())))
             )
-        except Exception:
-            # Fallback to simple table name if relation building fails
-            relation = None
-
-    # Generate the SELECT statement for the view
-    select_stmt = create_select_statement(
-        base_schema,
-        database_schema=database_schema,
-        num_conditions=random.randint(0, 2) if random.random() < 0.7 else 0,
-        select_all=random.random() < 0.6,
-        use_where=random.random() < 0.5,
-        use_order_by=random.random() < 0.4 if use_complex_select else False,
-        use_group_by=random.random() < 0.3 if use_complex_select else False,
-        use_distinct=random.random() < 0.2 if use_complex_select else False,
-        use_limit=random.random() < 0.3 if use_complex_select else False,
-        use_aggregates=random.random() < 0.4 if use_complex_select else False,
-    )
-
-    # Extract the SELECT clause (remove trailing semicolon if present)
-    select_clause = select_stmt.rstrip(";")
-
+            select_part = ", ".join(cols)
+        
+        select_clause = f"SELECT {select_part} FROM {base_schema.table_name}"
+        
+        # Add WHERE clause (50% chance)
+        if random.random() < 0.5 and base_schema.get_column_names():
+            where_clause = create_where_condition(base_schema, num_conditions=random.randint(1, 2))
+            select_clause += f" WHERE {where_clause}"
+        
+        # Add GROUP BY (30% chance)
+        if random.random() < 0.3 and base_schema.get_column_names():
+            group_cols = random.sample(
+                base_schema.get_column_names(),
+                k=random.randint(1, min(2, len(base_schema.get_column_names())))
+            )
+            select_clause += f" GROUP BY {', '.join(group_cols)}"
+        
+        # Add ORDER BY (50% chance)
+        if random.random() < 0.5 and base_schema.get_column_names():
+            order_cols = random.sample(
+                base_schema.get_column_names(),
+                k=random.randint(1, min(2, len(base_schema.get_column_names())))
+            )
+            order_directions = [random.choice(["ASC", "DESC"]) for _ in order_cols]
+            order_part = ", ".join(f"{col} {direction}" for col, direction in zip(order_cols, order_directions))
+            select_clause += f" ORDER BY {order_part}"
+        
+        # Add LIMIT (30% chance)
+        if random.random() < 0.3:
+            limit_value = random.randint(10, 100)
+            select_clause += f" LIMIT {limit_value}"
+    
+    elif select_type == "subquery" and use_complex_select:
+        # SELECT with subquery
+        subquery = create_subquery(base_schema, num_conditions=random.randint(0, 2))
+        
+        # Wrap subquery with additional SELECT features
+        select_features = []
+        if random.random() < 0.4:
+            select_features.append("DISTINCT")
+        
+        distinct_part = "DISTINCT " if select_features else ""
+        select_clause = f"SELECT {distinct_part}* FROM ({subquery}) AS v_sub"
+        
+        # Optionally add ORDER BY to outer query
+        if random.random() < 0.4:
+            select_clause += f" ORDER BY {random.choice(['v_sub.*', '1'])} {random.choice(['ASC', 'DESC'])}"
+        
+        # Optionally add LIMIT to outer query
+        if random.random() < 0.3:
+            select_clause += f" LIMIT {random.randint(10, 100)}"
+    
+    elif select_type == "join" and join_schemas and len(join_schemas) > 0 and use_complex_select:
+        # SELECT with JOINs
+        # Select columns from base table
+        base_cols = random.sample(
+            base_schema.get_column_names(),
+            k=random.randint(1, min(2, len(base_schema.get_column_names())))
+        )
+        selected_cols = [f"{base_schema.table_name}.{col}" for col in base_cols]
+        
+        # Add columns from join tables
+        for join_schema in join_schemas:
+            if join_schema.get_column_names():
+                join_cols = random.sample(
+                    join_schema.get_column_names(),
+                    k=random.randint(1, min(2, len(join_schema.get_column_names())))
+                )
+                selected_cols.extend([f"{join_schema.table_name}.{col}" for col in join_cols])
+        
+        select_part = ", ".join(selected_cols)
+        select_clause = f"SELECT {select_part} FROM {base_schema.table_name}"
+        
+        # Add JOIN clauses
+        for join_schema in join_schemas:
+            join_type = random.choice(JOIN_TYPES)
+            base_join_col = base_schema.get_column_names()[0]
+            join_col = join_schema.get_column_names()[0]
+            select_clause += f" {join_type} {join_schema.table_name} ON {base_schema.table_name}.{base_join_col} = {join_schema.table_name}.{join_col}"
+        
+        # Optional WHERE clause
+        if random.random() < 0.4:
+            where_col = f"{base_schema.table_name}.{random.choice(base_schema.get_column_names())}"
+            where_value = random.randint(-100, 100)
+            select_clause += f" WHERE {where_col} > {where_value}"
+    
+    else:
+        # Fallback to simple select
+        select_clause = f"SELECT * FROM {base_schema.table_name}"
+    
     # Create the view statement
     statement = f"CREATE VIEW {view_name} AS {select_clause};"
     return statement
@@ -722,15 +969,12 @@ def generate_simple_workload(
         "seed": seed,
     }
 
-    database_schema = DatabaseSchema()
-
     # Create exactly one initial table
     table_name = generate_table_name(0)
     statements.append(f"DROP TABLE IF EXISTS {table_name};")
     create_stmt, schema = create_table_statement(table_name, num_columns=random.randint(2, 4))
     statements.append(create_stmt)
     schemas[table_name] = schema
-    database_schema.add_table(schema)
 
     # Main loop: randomly generate diverse statements (7-12 iterations)
     num_iterations = random.randint(7, 12)
@@ -741,12 +985,12 @@ def generate_simple_workload(
     for iteration in range(num_iterations):
         # Weight insertions higher early on, then decrease over iterations
         insert_prob = (0.9 - (iteration / num_iterations) * 1.2)
-        
+        select_prob =  (iteration / num_iterations) * 0.4
+        join_prob =  (iteration / num_iterations) * 0.5
         
         # Distribute remaining probability among other operations
         remaining_prob = 1.0 - insert_prob
-        select_prob = insert_prob + (((iteration / num_iterations) * 0.9) * remaining_prob)
-        update_prob = select_prob + (0.10 * remaining_prob)
+        update_prob = insert_prob + (0.10 * remaining_prob)
         delete_prob = update_prob + (0.08 * remaining_prob)
         insert_select_prob = delete_prob + (0.08 * remaining_prob)
         index_prob = insert_select_prob + (0.15 * remaining_prob)
@@ -766,46 +1010,10 @@ def generate_simple_workload(
             if insert_stmt:
                 statements.append(insert_stmt)
         
-        elif rand_type < select_prob:
-            # Simple SELECT with various relations, including joins and views
-            num_conditions = random.randint(0, 2) if random.random() < 0.7 else 0
-            relation = None
-            if len(schemas_list) > 0:
-                relation = get_relation(
-                    database_schema,
-                    select_builder=lambda depth: create_select_statement(
-                        selected_schema,
-                        database_schema=None,  # Avoid recursion
-                        num_conditions=random.randint(0, 2),
-                        use_where=True,
-                        use_order_by=False,
-                        use_limit=False,
-                        use_aggregates=False,
-                    ),
-                    max_depth=2,
-                    allow_joins=True,
-                    allow_views=False,
-                )
-
-            select_stmt = create_select_statement(
-                selected_schema,
-                database_schema=database_schema,
-                num_conditions=num_conditions,
-                select_all=random.random() < 0.5,
-                use_where=num_conditions > 0,
-                use_order_by=random.random() < 0.4,
-                use_group_by=random.random() < 0.2,
-                use_distinct=random.random() < 0.2,
-                use_limit=random.random() < 0.4,
-                use_aggregates=random.random() < 0.6,  # Increased probability
-                relation=relation,
-            )
-            statements.append(select_stmt)
-        
         elif rand_type < update_prob:
             # UPDATE statement
             update_stmt = create_update_statement(selected_schema, use_where=random.random() < 0.8)
-            if update_stmt and update_stmt != "":
+            if update_stmt:
                 statements.append(update_stmt)
         
         elif rand_type < delete_prob:
@@ -814,13 +1022,40 @@ def generate_simple_workload(
             if delete_stmt:
                 statements.append(delete_stmt)
         
+        elif rand_type < select_prob:
+            # Simple SELECT with various features
+            num_conditions = random.randint(0, 2) if random.random() < 0.7 else 0
+            select_stmt = create_select_statement(
+                selected_schema,
+                num_conditions=num_conditions,
+                select_all=random.random() < 0.5,
+                use_where=num_conditions > 0,
+                use_order_by=random.random() < 0.4,
+                use_group_by=random.random() < 0.2,
+                use_distinct=random.random() < 0.2,
+                use_limit=random.random() < 0.4,
+                use_subquery=random.random() < 0.2,
+            )
+            statements.append(select_stmt)
+        
+        elif rand_type < join_prob and len(schemas_list) > 1:
+            # JOIN SELECT with multiple tables and columns
+            num_join_tables = random.randint(1, min(2, len(schemas_list) - 1))
+            join_tables = random.sample(
+                [s for s in schemas_list if s.table_name != selected_schema.table_name],
+                k=num_join_tables
+            )
+            if join_tables:
+                join_stmt = create_join_select_statement(selected_schema, join_tables)
+                if join_stmt:
+                    statements.append(join_stmt)
+        
         elif rand_type < insert_select_prob and len(schemas_list) > 1:
             # INSERT INTO ... SELECT
             source_table = random.choice([s for s in schemas_list if s.table_name != selected_schema.table_name])
             insert_select_stmt = create_insert_select_statement(
                 selected_schema,
                 source_table,
-                database_schema=database_schema,
                 num_conditions=random.randint(0, 1)
             )
             if insert_select_stmt:
@@ -839,7 +1074,6 @@ def generate_simple_workload(
             create_stmt, new_schema = create_table_statement(new_table_name, num_columns=random.randint(2, 4))
             statements.append(create_stmt)
             schemas[new_table_name] = new_schema
-            database_schema.add_table(new_schema)
             schemas_list = list(schemas.values())
             next_table_id += 1
         
@@ -860,13 +1094,11 @@ def generate_simple_workload(
             view_stmt = create_view_statement(
                 view_name,
                 base_table,
-                database_schema=database_schema,
-                schemas_list=schemas_list,
+                join_schemas=join_tables if join_tables else None,
                 use_complex_select=True
             )
             if view_stmt:
                 statements.append(view_stmt)
-                database_schema.add_view(view_name, view_stmt)
                 next_view_id += 1
         
         elif random.random() < 0.6:
@@ -879,15 +1111,11 @@ def generate_simple_workload(
             # Complex SELECT with subquery as fallback
             select_stmt = create_select_statement(
                 selected_schema,
-                database_schema=database_schema,
                 num_conditions=random.randint(0, 2),
-                select_all=random.random() < 0.6,
                 use_where=True,
                 use_order_by=random.random() < 0.5,
-                use_group_by=random.random() < 0.3,
-                use_distinct=random.random() < 0.3,
                 use_limit=random.random() < 0.5,
-                use_aggregates=random.random() < 0.4,
+                use_subquery=True,
             )
             statements.append(select_stmt)
 
