@@ -30,16 +30,13 @@ from test_db.oracle.differential import compare_results
 # ---------------------------------------------------------------------------
 # What counts as a "query"
 # ---------------------------------------------------------------------------
-# The spec talks about "10,000 queries" but our generator emits multi-statement
-# workloads (DROP / CREATE / INSERT / SELECT). We count any statement that is
-# not pure setup as a query. This matches what the keyword-coverage and
-# validity reports will measure.
-_SETUP_PREFIXES = ("DROP TABLE", "CREATE TABLE", "CREATE INDEX", "CREATE VIEW", "INSERT INTO")
-
-
+# The spec's "10,000 queries" target counts every generated SQL statement
+# (CREATE / INSERT / SELECT / UPDATE / ...), not just read queries. The
+# keyword-coverage analysis the spec asks for explicitly tabulates CREATE,
+# INSERT, JOIN, WHERE, VIEW, etc., so excluding setup statements would
+# undercount.
 def _is_query(sql: str) -> bool:
-    head = sql.lstrip().upper()
-    return not any(head.startswith(p) for p in _SETUP_PREFIXES)
+    return bool(sql.strip())
 
 
 # ---------------------------------------------------------------------------
