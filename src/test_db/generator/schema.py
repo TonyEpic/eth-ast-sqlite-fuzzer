@@ -61,7 +61,7 @@ class DatabaseSchema:
 
     def __init__(self):
         self.tables: Dict[str, TableSchema] = {}
-        self.views: Dict[str, str] = {}
+        self.views: Dict[str, TableSchema] = {}
 
     def add_table(self, schema: TableSchema) -> None:
         self.tables[schema.table_name] = schema
@@ -69,10 +69,10 @@ class DatabaseSchema:
     def get_table(self, table_name: str) -> Optional[TableSchema]:
         return self.tables.get(table_name)
 
-    def add_view(self, view_name: str, view_sql: str) -> None:
-        self.views[view_name] = view_sql
+    def add_view(self, schema: TableSchema) -> None:
+        self.views[schema.table_name] = schema
 
-    def get_view(self, view_name: str) -> Optional[str]:
+    def get_view(self, view_name: str) -> Optional[TableSchema]:
         return self.views.get(view_name)
 
     def get_table_names(self) -> List[str]:
@@ -87,14 +87,16 @@ class DatabaseSchema:
             relations += self.get_view_names()
         return relations
 
-    def get_columns(self, table_name: str) -> List[str]:
-        if table_name in self.tables:
-            return self.tables[table_name].get_column_names()
+    def get_columns(self, relation_name: str) -> List[str]:
+        relations = self.tables | self.views
+        if relation_name in relations:
+            return relations[relation_name].get_column_names()
         return []
 
-    def get_column_types(self, table_name: str) -> List[str]:
-        if table_name in self.tables:
-            return self.tables[table_name].get_column_types()
+    def get_column_types(self, relation_name: str) -> List[str]:
+        relations = self.tables | self.views
+        if relation_name in relations:
+            return relations[relation_name].get_column_types()
         return []
 
     def get_constraints(self, table_name: str) -> Dict[str, List[ColumnConstraint]]:
