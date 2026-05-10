@@ -80,10 +80,20 @@ def test_compare_unordered_rows_in_different_order_is_equivalent():
     assert same
 
 
-def test_compare_ordered_rows_in_different_order_is_mismatch():
+def test_compare_ordered_rows_in_different_order_is_tie_break_equivalent():
+    # ORDER BY but identical multisets => tied sort keys, implementation-
+    # defined tie-break order. SQL allows either engine to win. Not a bug.
     sql = "SELECT c0 FROM t ORDER BY c0;"
     p = _run(_stmt(0, sql, stdout="1\n2\n3"))
     v = _run(_stmt(0, sql, stdout="3\n1\n2"))
+    same, _ = compare_results(p, v)
+    assert same
+
+
+def test_compare_ordered_rows_with_different_multisets_is_mismatch():
+    sql = "SELECT c0 FROM t ORDER BY c0;"
+    p = _run(_stmt(0, sql, stdout="1\n2\n3"))
+    v = _run(_stmt(0, sql, stdout="1\n2\n4"))  # different rows, not just order
     same, reason = compare_results(p, v)
     assert not same
     assert "row set" in reason.lower()

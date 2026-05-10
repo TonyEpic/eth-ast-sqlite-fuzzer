@@ -6,6 +6,7 @@ from test_db.config import DEFAULT_OUTPUT_DIR, DEFAULT_TIMEOUT_SEC
 from test_db.executor.sqlite_runner import run_on_patched, run_on_vanilla
 from test_db.generator.workload_generator import generate_workload
 from test_db.harness.runner import print_summary, run_experiment
+from test_db.harness.stats import collect_stats, print_stats
 from test_db.interfaces import RunOutcome
 from test_db.oracle.classifier import classify_single
 from test_db.oracle.differential import compare_results
@@ -60,6 +61,34 @@ def _cmd_experiment(args: argparse.Namespace) -> None:
         coverage=args.coverage,
     )
     print_summary(summary)
+
+    # Auto-generate the characteristics report so the run dir is self-contained.
+    run_dir = Path(summary["paths"]["workloads_jsonl"]).parent
+    try:
+        stats_summary = collect_stats(run_dir)
+        print(
+            f"[stats] wrote {run_dir / 'characteristics.json'} "
+            f"({stats_summary['total_queries']} statements analyzed)",
+            flush=True,
+        )
+    except FileNotFoundError as e:
+        print(f"[stats] skipped: {e}", flush=True)
+
+
+def _cmd_stats(args: argparse.Namespace) -> None:
+    if args.run_dir:
+        run_dir = Path(args.run_dir)
+    else:
+        runs = Path(args.output_dir) / "runs"
+        if not runs.is_dir():
+            raise SystemExit(f"No runs found under {runs}")
+        candidates = [p for p in runs.iterdir() if p.is_dir() and (p / "workloads.jsonl").is_file()]
+        if not candidates:
+            raise SystemExit(f"No completed runs under {runs}")
+        run_dir = max(candidates, key=lambda p: p.stat().st_mtime)
+    summary = collect_stats(run_dir)
+    print_stats(summary)
+    print(f"[stats] wrote {run_dir / 'characteristics.json'} and characteristics.txt")
 
 
 def _cmd_triage(args: argparse.Namespace) -> None:
@@ -131,6 +160,14 @@ def build_parser() -> argparse.ArgumentParser:
     tri_p.add_argument("--out", default="bug-reproducers",
                        help="Output directory (default: bug-reproducers/).")
     tri_p.set_defaults(func=_cmd_triage)
+
+    sta_p = sub.add_parser(
+        "stats",
+        help="Compute SQL keyword coverage and query-validity report for a run.",
+    )
+    sta_p.add_argument("--run-dir", default=None,
+                       help="Run dir to analyze (default: latest under output/runs).")
+    sta_p.set_defaults(func=_cmd_stats)
 
     return parser
 

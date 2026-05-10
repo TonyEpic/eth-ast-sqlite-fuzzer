@@ -17,6 +17,7 @@ build/
 
 Task description.pdf
 faq_guide.pdf
+explantion.md
 
 # Fuzzer outputs are generated artifacts, not source.
 output/

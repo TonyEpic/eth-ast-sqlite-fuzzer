@@ -15,7 +15,7 @@ import json
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -25,6 +25,7 @@ from test_db.generator.workload_generator import generate_workload
 from test_db.harness.coverage import collect_coverage, reset_coverage_data
 from test_db.oracle.classifier import classify_single
 from test_db.oracle.differential import compare_results
+from test_db.oracle.normalizer import normalize_error
 
 
 # ---------------------------------------------------------------------------
@@ -57,6 +58,10 @@ class WorkloadOutcome:
     exec_vanilla_ms: float
     exec_coverage_ms: float
     sql_text: str
+    # Compact per-statement records for the stats / characteristics analysis.
+    # One dict per executed statement: {"sql", "rc", "stderr_kind", "timed_out"}.
+    # `stderr_kind` is the normalized error category (see oracle.normalizer).
+    statements: list = field(default_factory=list)
 
 
 def _run_one(args: tuple[bool, bool, int]) -> WorkloadOutcome:
@@ -97,6 +102,18 @@ def _run_one(args: tuple[bool, bool, int]) -> WorkloadOutcome:
     n_exec_stmts = len(patched.statements)
     n_exec_queries = sum(1 for s in patched.statements if _is_query(s.sql))
 
+    # Compact per-statement records, used by harness/stats.py to compute
+    # keyword coverage and query-validity ratios over the whole campaign.
+    stmt_records = [
+        {
+            "sql": s.sql,
+            "rc": s.returncode,
+            "stderr_kind": normalize_error(s.stderr),
+            "timed_out": s.timed_out,
+        }
+        for s in patched.statements
+    ]
+
     return WorkloadOutcome(
         workload_id=workload_id,
         classification=classification,
@@ -110,6 +127,7 @@ def _run_one(args: tuple[bool, bool, int]) -> WorkloadOutcome:
         exec_vanilla_ms=exec_vanilla_ms,
         exec_coverage_ms=exec_coverage_ms,
         sql_text=workload.sql_text,
+        statements=stmt_records,
     )
 
 
