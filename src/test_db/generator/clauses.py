@@ -5,14 +5,15 @@ from test_db.generator.expressions import generate_filter_expression
 #from test_db.generator.workload_generator import create_select_statement
 
 JOIN_TYPES = ["INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN"]
+SET_OPS = ["UNION ALL", "UNION", "INTERSECT", "EXCEPT"]
 JOIN_PARAMETER = 0.5
 SUBQUERY_PARAMETER = 0.5
 
 def get_relation(
     database_schema: DatabaseSchema,
-    select_builder: Optional[Callable[[int], str]] = None,
     max_depth: int = 2,
     allow_joins: bool = True,
+    allow_setops: bool = True,
     allow_views: bool = False,
 ) -> Tuple[str, Dict[str, str]]:
     """Return a relation string for a FROM clause.
@@ -27,55 +28,51 @@ def get_relation(
         return "(SELECT 1) AS dummy_relation", {}
 
     if max_depth <= 0 or random.random() < 0.5:
-        if allow_joins and len(relations) > 1 and random.random() < 0.5:
+        # Return simple relation
+        res = random.choice(relations)
+        return (res, database_schema.tables[res].columns)
+    
+    else:
+        threshold = random.random()
+        if allow_joins and threshold < 0.3:
             # Create JOIN Clause
-            left = random.choice(relations)
-            right = random.choice([r for r in relations if r != left])
+            left, left_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
+            right, right_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
             join_type = random.choice(JOIN_TYPES)
-            left_cols = database_schema.get_columns(left)
-            right_cols = database_schema.get_columns(right)
+            left_cols = list(left_dict.keys())
+            right_cols = list(right_dict.keys())
         
             if left_cols and right_cols:
-                # Try to match columns by type, otherwise pick random compatible ones
                 left_col = random.choice(left_cols)
                 right_col = random.choice(right_cols)
                 return (f"{left} {join_type} {right} ON {left}.{left_col} = {right}.{right_col}", database_schema.tables[left].columns | database_schema.tables[right].columns)
             else:
                 # Fallback to c0 if column info not available
                 return (f"{left} {join_type} {right} ON {left}.c0 = {right}.c0", database_schema.tables[left].columns | database_schema.tables[right].columns)
-
-        # Return simple relation
-        res = random.choice(relations)
-        return (res, database_schema.tables[res].columns) 
-    
-    else:
-        return create_subquery(database_schema = database_schema, max_depth = max_depth - 1) 
-
-    """ if select_builder and max_depth > 0 and random.random() < 0.25:
-        subquery = select_builder(max_depth - 1).rstrip(";")
-        alias = f"subq{max_depth}"
-        return f"({subquery}) AS {alias}"
-    
-    if max_depth > 0 and random.random() < 0.3:
-        subquery, columns = create_select_statement(database_schema = DatabaseSchema, depth = max_depth - 1) 
-
-    if allow_joins and len(relations) > 1 and random.random() < 0.6:
-        left = random.choice(relations)
-        right = random.choice([r for r in relations if r != left])
-        join_type = random.choice(JOIN_TYPES)
-        left_cols = database_schema.get_columns(left)
-        right_cols = database_schema.get_columns(right)
         
-        if left_cols and right_cols:
-            # Try to match columns by type, otherwise pick random compatible ones
-            left_col = random.choice(left_cols)
-            right_col = random.choice(right_cols)
-            return f"{left} {join_type} {right} ON {left}.{left_col} = {right}.{right_col}"
-        else:
-            # Fallback to c0 if column info not available
-            return f"{left} {join_type} {right} ON {left}.c0 = {right}.c0"
+        if allow_setops and threshold < 0.6:
+            # Create JOIN Clause
+            left, left_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
+            right, right_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
+            set_op = random.choice(SET_OPS)
+            left_cols = list(left_dict.keys())
+            right_cols = list(right_dict.keys())
+        
+            if left_cols and right_cols:
+                num_cols = random.randint(1, min(len(left_cols), len(right_cols)))
+                left_sample = random.sample(left_cols, k=num_cols)
+                right_sample = random.sample(right_cols, k=num_cols)
+                left_sel = ", ".join(left_sample)
+                right_sel = ", ".join(right_sample)
+                # Construct simpler fixed set_op select statement to be compatible with the rest
+                return (f"(SELECT {left_sel} FROM {left} {set_op} SELECT {right_sel} FROM {right}) AS subq{random.randint(1,100)}", database_schema.tables[left].columns)
+            else:
+                # Fallback to dummy
+                return "(SELECT 1) AS dummy_relation", {}
 
-    return random.choice(relations)"""
+        else:
+            return create_subquery(database_schema = database_schema, max_depth = max_depth) 
+
 
 def create_where_condition(
     schema: TableSchema, num_conditions: int = 1, use_logical_ops: bool = True

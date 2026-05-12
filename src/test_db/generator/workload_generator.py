@@ -17,7 +17,7 @@ Supports:
 - Advanced operators (BETWEEN, IN, LIKE, COLLATE)
 """
 
-# TODO -> IN, VIEW, DROP col, PRAGMA, ANALYZE, WITHOUT, aggregate, Transactions, String conversion
+# TODO -> DROP col, PRAGMA, ANALYZE, WITHOUT, aggregate, Transactions
 
 import random
 import string
@@ -29,7 +29,7 @@ from test_db.generator.expressions import generate_filter_expression
 
 
 # SQLite data types
-SQLITE_TYPES = ["INT", "TEXT", "REAL"]
+SQLITE_TYPES = ["INT", "TEXT", "REAL", "BLOB"]
 
 # Aggregate functions
 AGGREGATE_FUNCTIONS = ["COUNT", "SUM", "AVG", "MIN", "MAX"]
@@ -43,6 +43,9 @@ JOIN_TYPES = ["INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN"]
 # Constraint types
 CONSTRAINT_TYPES = ["PRIMARY KEY", "UNIQUE", "NOT NULL", "DEFAULT", "CHECK", "COLLATE"]
 
+# ALTER types
+ALTER_TYPES = ["RENAME TO", "RENAME COLUMN", "ADD COLUMN", "DROP COLUMN"]
+
 def generate_table_name(index: int = 0) -> str:
     """
     Generate a simple table name for now.
@@ -53,6 +56,7 @@ def generate_table_name(index: int = 0) -> str:
     Returns:
         Table name like 't0', 't1', etc.
     """
+    # index = random.randint(1,20)
     return f"t{index}"
 
 
@@ -66,7 +70,7 @@ def generate_column_name(index: int = 0) -> str:
     Returns:
         Column name like 'c0', 'c1', etc.
     """
-    index = random.randint(1,50)
+    index = random.randint(1,100)
     return f"c{index}"
 
 
@@ -84,20 +88,38 @@ def generate_random_value(data_type: str) -> Any:
         threshold = random.random()
         if threshold < 0.2:
             return 0
-        elif threshold < 0.25:
+        elif threshold < 0.45:
             return 2**63 - 1  # Max Integer
-        elif threshold < 0.3:
+        elif threshold < 0.7:
             return -(2**63)  # Min Integer
         else:
             return random.randint(-20, 20)
     elif data_type == "TEXT":
-        if random.random() < 0.05:
-          return "test-text"
+        threshold = random.random()
+        if threshold < 0.05:
+          return "some_fixed_text"
+        elif threshold < 0.5:
+          # Cover some edgecases
+          edgecases = [
+            "", " ", "\x00", "\n", "\t", "'", '"', "A" * 10000, "🚀", "NULL", "\');Drop table t0;", "(", ")", "()", "(a)", "((((((a))))))", "x'"
+          ]
+          choice = random.choice(edgecases)
+          return choice
         else:
           length = random.randint(1, 10)
           return "".join(random.choices(string.ascii_letters + string.digits, k=length))
     elif data_type == "REAL":
-        return round(random.uniform(-100000.0, 100000.0), 2)
+        threshold = random.random()
+        if threshold < 0.2:
+            return 0
+        elif threshold < 0.7:
+            # Returns either a negative or positive number
+            power = random.randint(-100,100)
+            return (-1 - random.random())**power
+        else:
+          return round(random.uniform(-100000.0, 100000.0), 2)
+    elif data_type == "BLOB":
+        return f"zeroblob({random.randint(1,100)})"
     return None
 
 
@@ -237,10 +259,13 @@ def create_insert_statement(
                 row_values.append("NULL")
             else:
                 value = generate_random_value(col_type)
-                if isinstance(value, str) and not value.startswith("x'"):
+                if isinstance(value, str) and not col_type == "BLOB":
                     # Escape single quotes in strings
-                    value = value.replace("'", "''")
-                    row_values.append(f"'{value}'")
+                    if value == "x'":
+                        row_values.append(f"hex(zeroblob(10000000))")
+                    else:
+                        value = value.replace("'", "''")
+                        row_values.append(f"'{value}'")
                 elif value is None:
                     row_values.append("NULL")
                 else:
@@ -303,19 +328,22 @@ def create_update_statement(schema: TableSchema, use_where: bool = True) -> str:
     columns = random.sample(schema.get_column_names(), k=random.randint(1, len(schema.get_column_names())))
     
     set_clauses = []
+    skip_col = False
     for col_name in columns:
         if col_name == schema.primary_key:
             continue
         if col_name in schema.constraints:
             for constraint in schema.constraints[col_name]:
                 if constraint.constraint_type == "UNIQUE":
-                    continue
+                    skip_col = True
+        if skip_col:
+            continue
 
         col_idx = schema.get_column_names().index(col_name)
         col_type = schema.get_column_types()[col_idx]
         value = generate_random_value(col_type)
         
-        if isinstance(value, str) and not value.startswith("x'"):
+        if isinstance(value, str) and not col_type == "BLOB":
             value = value.replace("'", "''")
             set_clauses.append(f"{col_name} = '{value}'")
         else:
@@ -378,45 +406,79 @@ def create_index_statement(
     return statement
 
 
-def create_alter_table_statement(schema: TableSchema) -> Optional[str]:
+def create_alter_table_statement(schema: TableSchema, next_table_id) -> Tuple[Optional[str], int]:
     """
-    Generate an ALTER TABLE ADD COLUMN statement.
+    Generate an ALTER TABLE statement.
     
-    Note: Does NOT include UNIQUE constraint as SQLite does not support adding
-    UNIQUE columns to existing tables.
+    Note: Does NOT include UNIQUE or NOT NULL constraint as SQLite does not support adding
+    these columns to existing tables.
 
     Args:
-        schema: TableSchema object defining the table structure
+        database_schema: TableSchema object defining the table structure
 
     Returns:
         SQL ALTER TABLE statement or None
 
     Example:
-        >>> stmt, schema = create_table_statement('t0', num_columns=2)
-        >>> alter_stmt = create_alter_table_statement(schema)
-        >>> print(alter_stmt)
         ALTER TABLE t0 ADD COLUMN c2 TEXT;
     """
-    new_col_name = generate_column_name(len(schema.get_column_names()))
-    new_col_type = random.choice(SQLITE_TYPES)
+
+    alter_type = random.choice(ALTER_TYPES)
     
-    col_def = f"{new_col_name} {new_col_type}"
-    
-    # Optionally add a constraint, but exclude UNIQUE (SQLite limitation)
-    constraint = generate_constraint_for_column(new_col_type)
-    while constraint and (constraint.constraint_type == "UNIQUE" or constraint.constraint_type == "NOT NULL"):
-        # Regenerate if UNIQUE was selected
+    if alter_type == "RENAME TO":
+        old_table = schema.table_name
+        new_table = generate_table_name(next_table_id)
+        schema.table_name = new_table
+        statement = f"ALTER TABLE {old_table} {alter_type} {new_table};"
+        next_table_id = next_table_id + 1
+
+    elif alter_type == "RENAME COLUMN":
+        if not schema.columns:
+            return None, next_table_id
+        old_col = random.choice(list(schema.columns.keys()))
+        new_col = generate_column_name(0)
+
+        statement = f"ALTER TABLE {schema.table_name} {alter_type} {old_col} TO {new_col};"
+
+        schema.columns[new_col] = schema.columns.pop(old_col)
+        if old_col in schema.constraints:
+            schema.constraints[new_col] = schema.constraints.pop(old_col)
+        if schema.primary_key == old_col:
+            schema.primary_key = new_col
+
+    elif alter_type == "ADD COLUMN":
+        new_col_name = generate_column_name(len(schema.get_column_names()))
+        new_col_type = random.choice(SQLITE_TYPES)
+        
+        col_def = f"{new_col_name} {new_col_type}"
+        
+        # Optionally add a constraint, but exclude UNIQUE and NOT NULL (SQLite limitation)
         constraint = generate_constraint_for_column(new_col_type)
-    
-    if constraint:
-        col_def += " " + constraint.to_sql()
-    
-    statement = f"ALTER TABLE {schema.table_name} ADD COLUMN {col_def};"
-    
-    # Update schema
-    schema.columns[new_col_name] = new_col_type
-    
-    return statement
+        while constraint and (constraint.constraint_type == "UNIQUE" or constraint.constraint_type == "NOT NULL"):
+            # Regenerate if UNIQUE was selected
+            constraint = generate_constraint_for_column(new_col_type)
+        
+        if constraint:
+            col_def += " " + constraint.to_sql()
+        
+        statement = f"ALTER TABLE {schema.table_name} ADD COLUMN {col_def};"
+        
+        # Update schema
+        schema.columns[new_col_name] = new_col_type
+
+    elif alter_type == "DROP COLUMN":
+        if not schema.columns:
+            return None, next_table_id
+        old_col = random.choice(list(schema.columns.keys()))
+        schema.columns.pop(old_col)
+        if old_col in schema.constraints:
+            schema.constraints.pop(old_col)
+        if schema.primary_key == old_col:
+            schema.primary_key = ""
+
+        statement = f"ALTER TABLE {schema.table_name} {alter_type} {old_col};"
+
+    return statement, next_table_id
 
 
 def create_insert_select_statement(
@@ -491,8 +553,8 @@ def create_select_statement(
     Generate a SELECT statement using relations from clauses.py.
 
     Args:
-        schema: TableSchema object defining the table structure
         database_schema: DatabaseSchema instance for relation building
+        max_depth: maximum depth for subqueries
         num_conditions: Number of WHERE conditions (default: 1)
         select_all: Whether to select all columns or specific columns/aggregates (default: True)
         use_where: Whether to include a WHERE clause (default: True)
@@ -501,7 +563,6 @@ def create_select_statement(
         use_distinct: Whether to include DISTINCT keyword (default: False)
         use_limit: Whether to include LIMIT clause (default: False)
         use_aggregates: Whether to include aggregate functions (default: False)
-        relation: Optional relation string to use in FROM clause (if not provided, will be auto-generated)
 
     Returns:
         SQL SELECT statement
@@ -676,25 +737,26 @@ def generate_simple_workload(
     database_schema.add_table(schema)
 
     # Main loop: randomly generate diverse statements (7-12 iterations)
-    num_iterations = random.randint(7, 12)
+    num_iterations = random.randint(9, 16)
     schemas_list = list(schemas.values())
     next_table_id = 1  # For creating new tables
     next_view_id = 0  # For creating new views
     
     for iteration in range(num_iterations):
         # Weight insertions higher early on, then decrease over iterations
-        insert_prob = (0.9 - (iteration / num_iterations) * 1.2)
+        insert_prob = (0.6 - (iteration / num_iterations) * 1.2)
+        create_table_prob = insert_prob + (0.3 - (iteration / num_iterations) * 1.2)
         
         
         # Distribute remaining probability among other operations
-        remaining_prob = 1.0 - insert_prob
-        select_prob = insert_prob + (((iteration / num_iterations) * 0.9) * remaining_prob)
+        remaining_prob = 1.0 - create_table_prob
+        select_prob = create_table_prob + (((iteration / num_iterations) * 0.9) * remaining_prob)
+        remaining_prob = 1 - select_prob
         update_prob = select_prob + (0.10 * remaining_prob)
         delete_prob = update_prob + (0.08 * remaining_prob)
         insert_select_prob = delete_prob + (0.08 * remaining_prob)
         index_prob = insert_select_prob + (0.15 * remaining_prob)
-        create_table_prob = index_prob + (0.10 * remaining_prob)
-        create_view_prob = create_table_prob + (0.12 * remaining_prob)
+        create_view_prob = index_prob + (0.12 * remaining_prob)
         alter_prob = 1.0
         
         # Choose a random statement type
@@ -708,6 +770,17 @@ def generate_simple_workload(
             insert_stmt = create_insert_statement(selected_schema, num_rows=random.randint(1, 4))
             if insert_stmt:
                 statements.append(insert_stmt)
+        
+        elif rand_type < create_table_prob:
+            # CREATE a new table (adds to available tables for operations)
+            new_table_name = generate_table_name(next_table_id)
+            statements.append(f"DROP TABLE IF EXISTS {new_table_name};")
+            create_stmt, new_schema = create_table_statement(new_table_name, num_columns=random.randint(2, 4))
+            statements.append(create_stmt)
+            schemas[new_table_name] = new_schema
+            database_schema.add_table(new_schema)
+            schemas_list = list(schemas.values())
+            next_table_id += 1
         
         elif rand_type < select_prob:
             # Simple SELECT with various relations, including joins and views
@@ -755,17 +828,6 @@ def generate_simple_workload(
             if index_stmt:
                 statements.append(index_stmt)
         
-        elif rand_type < create_table_prob:
-            # CREATE a new table (adds to available tables for operations)
-            new_table_name = generate_table_name(next_table_id)
-            statements.append(f"DROP TABLE IF EXISTS {new_table_name};")
-            create_stmt, new_schema = create_table_statement(new_table_name, num_columns=random.randint(2, 4))
-            statements.append(create_stmt)
-            schemas[new_table_name] = new_schema
-            database_schema.add_table(new_schema)
-            schemas_list = list(schemas.values())
-            next_table_id += 1
-        
         elif rand_type < create_view_prob and len(schemas_list) > 0:
             # CREATE VIEW with complex SELECT
             view_name = f"v{next_view_id}"
@@ -791,9 +853,9 @@ def generate_simple_workload(
                 statements.append(view_stmt)
                 next_view_id += 1
         
-        elif random.random() < 0.6:
+        elif random.random() < 0.8:
             # ALTER TABLE (add column)
-            alter_stmt = create_alter_table_statement(selected_schema)
+            alter_stmt, next_table_id = create_alter_table_statement(selected_schema, next_table_id)
             if alter_stmt:
                 statements.append(alter_stmt)
         
