@@ -50,6 +50,33 @@ ALTER_TYPES = ["RENAME TO", "RENAME COLUMN", "ADD COLUMN", "DROP COLUMN"]
 TRANSACTION_START = ["BEGIN", "BEGIN TRANSACTION", "BEGIN DEFERRED", "BEGIN IMMEDIATE", "BEGIN EXCLUSIVE"]
 TRANSACTION_END = ["COMMIT", "END", "END TRANSACTION", "ROLLBACK"]
 
+# PRAGMA statements
+PRAGMA_EARLY_STATEMENTS = [
+    ("page_size", ["1024", "2048", "4096", "8192"]),
+    ("auto_vacuum", ["NONE", "FULL", "INCREMENTAL"]),
+]
+
+PRAGMA_ANYTIME_STATEMENTS = [
+    ("foreign_keys", ["ON", "OFF"]),
+    ("journal_mode", ["DELETE", "TRUNCATE", "PERSIST", "MEMORY", "WAL", "OFF"]),
+    ("synchronous", ["OFF", "NORMAL", "FULL", "EXTRA"]),
+    ("temp_store", ["DEFAULT", "FILE", "MEMORY"]),
+    ("locking_mode", ["NORMAL", "EXCLUSIVE"]),
+    ("cache_size", ["-200", "-1000", "-2000", "200", "1000"]),
+    ("recursive_triggers", ["ON", "OFF"]),
+    ("case_sensitive_like", ["ON", "OFF"]),
+    ("secure_delete", ["OFF", "FAST", "FULL"]),
+    ("wal_autocheckpoint", ["1000", "5000", "10000"]),
+    ("journal_size_limit", ["0", "1048576"]),
+    ("cache_spill", ["ON", "OFF"]),
+    ("analysis_limit", ["100", "1000", "10000"]),
+    ("integrity_check", None),
+    ("optimize", None),
+    ("wal_checkpoint", None),
+]
+
+
+
 def generate_table_name(index: int = 0) -> str:
     """
     Generate a simple table name for now.
@@ -90,14 +117,14 @@ def generate_random_value(data_type: str) -> Any:
     """
     if data_type == "INT":
         threshold = random.random()
-        if threshold < 0.2:
+        if threshold < 0.1:
             return 0
-        elif threshold < 0.45:
+        elif threshold < 0.25:
             return 2**63 - 1  # Max Integer
-        elif threshold < 0.7:
+        elif threshold < 0.4:
             return -(2**63)  # Min Integer
         else:
-            return random.randint(-20, 20)
+            return random.randint(-40, 40)
     elif data_type == "TEXT":
         threshold = random.random()
         if threshold < 0.05:
@@ -216,6 +243,13 @@ def create_table_statement(
 
     schema = TableSchema(table_name, columns, constraints, primary_key)
     return statement, schema
+
+def create_pragma_statement(pragmas: Optional[List[Tuple[str, Optional[List[str]]]]] = None) -> str:
+    pragmas = pragmas if pragmas is not None else PRAGMA_ANYTIME_STATEMENTS
+    pragma_name, values = random.choice(pragmas)
+    if values is None:
+        return f"PRAGMA {pragma_name};"
+    return f"PRAGMA {pragma_name} = {random.choice(values)};"
 
 
 def create_insert_statement(
@@ -475,12 +509,26 @@ def create_alter_table_statement(database_schema: DatabaseSchema, schema: TableS
         schema.columns[new_col_name] = new_col_type
 
     elif alter_type == "DROP COLUMN":
-        if not schema.columns:
+        col_list = list(schema.columns.keys())
+        # Skip if only column
+        if not len(col_list) > 1:
             return None, next_table_id
-        old_col = random.choice(list(schema.columns.keys()))
+
+        old_col = random.choice(col_list)
+        
+        # Skip if column is primary key
+        if old_col == schema.primary_key:
+            return None, next_table_id
+        
+        # Skip if column has UNIQUE or PRIMARY KEY constraint
+        constraints = schema.constraints.get(old_col)
+        if constraints and any(c.constraint_type in ["UNIQUE", "PRIMARY KEY"] for c in constraints):
+            return None, next_table_id
+
         schema.columns.pop(old_col)
         if old_col in schema.constraints:
             schema.constraints.pop(old_col)
+
         if schema.primary_key == old_col:
             schema.primary_key = ""
 
@@ -521,6 +569,7 @@ def create_insert_select_statement(
         use_distinct=False,
         use_limit=False,
         use_aggregates=False,
+        use_views=False
     )
 
     # Get matching columns between tables
@@ -555,7 +604,8 @@ def create_select_statement(
     use_group_by: bool = False,
     use_distinct: bool = False,
     use_limit: bool = False,
-    use_aggregates: bool = False
+    use_aggregates: bool = False,
+    use_views: bool = False
 ) -> Tuple[str, Dict[str, str]]:
     """
     Generate a SELECT statement using relations from clauses.py.
@@ -576,7 +626,7 @@ def create_select_statement(
         SQL SELECT statement
     """
     
-    relation, columns = get_relation(database_schema = database_schema, max_depth = max_depth - 1)
+    relation, columns = get_relation(database_schema = database_schema, allow_views=use_views, max_depth = max_depth - 1)
     relation = relation.rstrip(";")
     distinct_part = "DISTINCT " if use_distinct else ""
     new_columns = {}
@@ -692,6 +742,7 @@ def create_view_statement(
         use_distinct=random.random() < 0.2 if use_complex_select else False,
         use_limit=random.random() < 0.3 if use_complex_select else False,
         use_aggregates=random.random() < 0.4 if use_complex_select else False,
+        use_views=True
     )
 
     # Extract the SELECT clause (remove trailing semicolon if present)
@@ -793,7 +844,7 @@ def generate_simple_workload(
 
             select_stmt, cols = create_select_statement(
                 database_schema=database_schema,
-                max_depth=2,
+                max_depth=4,
                 num_conditions=num_conditions,
                 select_all=random.random() < 0.5,
                 use_where=num_conditions > 0,
@@ -802,6 +853,7 @@ def generate_simple_workload(
                 use_distinct=random.random() < 0.2,
                 use_limit=random.random() < 0.4,
                 use_aggregates=random.random() < 0.6,  # Increased probability
+                use_views=True
             )
             statements.append(select_stmt)
         
@@ -879,6 +931,7 @@ def generate_simple_workload(
                 use_distinct=random.random() < 0.2,
                 use_limit=random.random() < 0.4,
                 use_aggregates=random.random() < 0.6,  # Increased probability
+                use_views=True
             )
             statements.append(select_stmt)
 
@@ -890,6 +943,22 @@ def generate_simple_workload(
         endblock = random.choice(TRANSACTION_END) + ";"
         statements.insert(start_ins, startblock)
         statements.insert(end_ins, endblock)
+
+    if random.random() < 0.1:
+        # Add PRAGMA statements in one block:
+        #  - early-only pragmas before the first CREATE TABLE
+        #  - anytime-safe pragmas at the end of the statement stream
+        num_early = random.randint(1, 2)
+        early_pragmas = [create_pragma_statement(PRAGMA_EARLY_STATEMENTS) for _ in range(num_early)]
+        for pragma_stmt in reversed(early_pragmas):
+            statements.insert(1, pragma_stmt)
+
+        num_anytime = random.randint(1, 2)
+        anytime_pragmas = [create_pragma_statement(PRAGMA_ANYTIME_STATEMENTS) for _ in range(num_anytime)]
+        statements_len = len(statements)
+        for pragma_stmt in anytime_pragmas:
+            statements.insert(random.randint(1, statements_len), pragma_stmt)
+            statements_len = statements_len + 1
 
     sql_text = "\n".join(statements) + "\n"
 

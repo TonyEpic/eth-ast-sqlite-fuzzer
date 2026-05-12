@@ -30,7 +30,11 @@ def generate_comparison_expression(schema: TableSchema) -> str:
     if operator in ("IS", "IS NOT"):
         return f"{col_name} {operator} NULL"
     if operator == "LIKE":
-        return f"{col_name} LIKE '%{random.choice(string.ascii_letters)}%'"
+        length = random.randint(1, 4)
+        s = ''.join(random.choice('%_') for _ in range(length))
+        pos = random.randint(0, len(s))
+        result = s[:pos] + str(_generate_literal(col_type)).replace("'", "") + s[pos:]
+        return f"{col_name} LIKE '{result}'"
     if operator == "IN":
         values = ", ".join(_generate_literal(col_type) for _ in range(random.randint(1, 3)))
         return f"{col_name} IN ({values})"

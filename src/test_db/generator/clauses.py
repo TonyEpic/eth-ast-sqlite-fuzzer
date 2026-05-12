@@ -30,41 +30,58 @@ def get_relation(
     if max_depth <= 0 or random.random() < 0.5:
         # Return simple relation
         res = random.choice(relations)
-        return (res, database_schema.tables[res].columns)
+        if res in list(database_schema.tables.keys()):
+            return (res, database_schema.tables[res].columns)
+        else:
+            return (res, database_schema.views[res].columns)
     
     else:
         threshold = random.random()
+
+        def choose_relation_for_complex_clause():
+            if random.random() < 0.5:
+                return create_subquery(database_schema=database_schema, allow_views=allow_views, max_depth=max_depth - 1)
+            return get_relation(database_schema=database_schema, allow_views=allow_views, max_depth=0)
+
+        def relation_alias(relation: str) -> str:
+            if " AS " in relation.upper():
+                return relation.rsplit(" ", 1)[-1]
+            return relation
+
         if allow_joins and threshold < 0.3 and len(relations) >= 2:
             # Create JOIN Clause
-            left, left_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
-            right, right_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
+            left, left_dict = choose_relation_for_complex_clause()
+            right, right_dict = choose_relation_for_complex_clause()
             join_type = random.choice(JOIN_TYPES)
             left_cols = list(left_dict.keys())
             right_cols = list(right_dict.keys())
-        
+
+            left_ref = relation_alias(left)
+            right_ref = relation_alias(right)
+
             if left_cols and right_cols:
                 left_col = random.choice(left_cols)
                 right_col = random.choice(right_cols)
-                return (f"{left} {join_type} {right} ON {left}.{left_col} = {right}.{right_col}", database_schema.tables[left].columns | database_schema.tables[right].columns)
+                return (f"{left} {join_type} {right} ON {left_ref}.{left_col} = {right_ref}.{right_col}", left_dict | right_dict)
             else:
                 # Fallback to c0 if column info not available
-                return (f"{left} {join_type} {right} ON {left}.c0 = {right}.c0", database_schema.tables[left].columns | database_schema.tables[right].columns)
-        
+                return (f"{left} {join_type} {right} ON {left_ref}.c0 = {right_ref}.c0", left_dict | right_dict)
+
         if (allow_setops and threshold < 0.6) or (len(relations) < 2 and threshold < 0.2):
-            # Create JOIN Clause
-            left, left_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
-            right, right_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
+            # Create SETOP Clause
+            left, left_dict = choose_relation_for_complex_clause()
+            right, right_dict = choose_relation_for_complex_clause()
             set_op = random.choice(SET_OPS)
             left_cols = list(left_dict.keys())
             right_cols = list(right_dict.keys())
-        
+
             if left_cols and right_cols:
                 num_cols = random.randint(1, min(len(left_cols), len(right_cols)))
                 left_sample = random.sample(left_cols, k=num_cols)
                 right_sample = random.sample(right_cols, k=num_cols)
                 left_sel = ", ".join(left_sample)
                 right_sel = ", ".join(right_sample)
-                filtered_cols = {k: v for k, v in database_schema.tables.items() if k in left_sample}
+                filtered_cols = {k: v for k, v in (database_schema.tables | database_schema.views).items() if k in left_sample}
                 # Construct simpler fixed set_op select statement to be compatible with the rest
                 return (f"(SELECT {left_sel} FROM {left} {set_op} SELECT {right_sel} FROM {right}) AS subq{random.randint(1,100)}", filtered_cols)
             else:
@@ -72,7 +89,7 @@ def get_relation(
                 return "(SELECT 1) AS dummy_relation", {}
 
         else:
-            return create_subquery(database_schema = database_schema, max_depth = max_depth) 
+            return create_subquery(database_schema = database_schema, allow_views=allow_views, max_depth = max_depth)
 
 
 def create_where_condition(
@@ -109,9 +126,10 @@ def create_subquery(
     use_distinct: bool = False,
     use_limit: bool = False,
     use_aggregates: bool = False,
+    allow_views: bool = False
 ) -> Tuple[str, Dict[str, str]]:
 
-    relation, columns = get_relation(database_schema = database_schema, max_depth = max_depth - 1)
+    relation, columns = get_relation(database_schema = database_schema, allow_views=allow_views, max_depth = max_depth - 1)
     relation = relation.rstrip(";")
     distinct_part = "DISTINCT " if use_distinct else ""
     new_columns = {}
