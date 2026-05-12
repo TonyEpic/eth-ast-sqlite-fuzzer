@@ -17,7 +17,7 @@ Supports:
 - Advanced operators (BETWEEN, IN, LIKE, COLLATE)
 """
 
-# TODO -> DROP col, PRAGMA, ANALYZE, WITHOUT, aggregate, Transactions
+# TODO -> PRAGMA, ANALYZE, WITHOUT
 
 import random
 import string
@@ -41,10 +41,14 @@ COLLATION_TYPES = ["BINARY", "NOCASE", "RTRIM"]
 JOIN_TYPES = ["INNER JOIN", "LEFT JOIN", "RIGHT JOIN", "CROSS JOIN"]
 
 # Constraint types
-CONSTRAINT_TYPES = ["PRIMARY KEY", "UNIQUE", "NOT NULL", "DEFAULT", "CHECK", "COLLATE"]
+CONSTRAINT_TYPES = ["PRIMARY KEY", "UNIQUE", "NOT NULL", "DEFAULT", "CHECK", "COLLATE", "NOTNULL"]
 
 # ALTER types
 ALTER_TYPES = ["RENAME TO", "RENAME COLUMN", "ADD COLUMN", "DROP COLUMN"]
+
+# Transactions
+TRANSACTION_START = ["BEGIN", "BEGIN TRANSACTION", "BEGIN DEFERRED", "BEGIN IMMEDIATE", "BEGIN EXCLUSIVE"]
+TRANSACTION_END = ["COMMIT", "END", "END TRANSACTION", "ROLLBACK"]
 
 def generate_table_name(index: int = 0) -> str:
     """
@@ -876,6 +880,15 @@ def generate_simple_workload(
                 use_aggregates=random.random() < 0.6,  # Increased probability
             )
             statements.append(select_stmt)
+
+    if random.random() < 0.2:
+        # Add transaction
+        start_ins = random.randint(1, len(statements))
+        end_ins = random.randint(start_ins+1, len(statements)+1)
+        startblock = random.choice(TRANSACTION_START)
+        endblock = random.choice(TRANSACTION_END)
+        statements.insert(start_ins, startblock)
+        statements.insert(end_ins, endblock)
 
     sql_text = "\n".join(statements) + "\n"
 
