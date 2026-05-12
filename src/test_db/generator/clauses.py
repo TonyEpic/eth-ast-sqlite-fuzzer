@@ -34,7 +34,7 @@ def get_relation(
     
     else:
         threshold = random.random()
-        if allow_joins and threshold < 0.3:
+        if allow_joins and threshold < 0.3 and len(relations) >= 2:
             # Create JOIN Clause
             left, left_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
             right, right_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
@@ -50,7 +50,7 @@ def get_relation(
                 # Fallback to c0 if column info not available
                 return (f"{left} {join_type} {right} ON {left}.c0 = {right}.c0", database_schema.tables[left].columns | database_schema.tables[right].columns)
         
-        if allow_setops and threshold < 0.6:
+        if (allow_setops and threshold < 0.6) or (len(relations) < 2 and threshold < 0.2):
             # Create JOIN Clause
             left, left_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
             right, right_dict = get_relation(database_schema = database_schema, allow_views = allow_views, max_depth = max_depth - 1)
@@ -64,8 +64,9 @@ def get_relation(
                 right_sample = random.sample(right_cols, k=num_cols)
                 left_sel = ", ".join(left_sample)
                 right_sel = ", ".join(right_sample)
+                filtered_cols = {k: v for k, v in database_schema.tables.items() if k in left_sample}
                 # Construct simpler fixed set_op select statement to be compatible with the rest
-                return (f"(SELECT {left_sel} FROM {left} {set_op} SELECT {right_sel} FROM {right}) AS subq{random.randint(1,100)}", database_schema.tables[left].columns)
+                return (f"(SELECT {left_sel} FROM {left} {set_op} SELECT {right_sel} FROM {right}) AS subq{random.randint(1,100)}", filtered_cols)
             else:
                 # Fallback to dummy
                 return "(SELECT 1) AS dummy_relation", {}

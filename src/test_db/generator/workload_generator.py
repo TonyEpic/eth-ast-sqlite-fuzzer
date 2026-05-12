@@ -410,7 +410,7 @@ def create_index_statement(
     return statement
 
 
-def create_alter_table_statement(schema: TableSchema, next_table_id) -> Tuple[Optional[str], int]:
+def create_alter_table_statement(database_schema: DatabaseSchema, schema: TableSchema, next_table_id) -> Tuple[Optional[str], int]:
     """
     Generate an ALTER TABLE statement.
     
@@ -418,7 +418,9 @@ def create_alter_table_statement(schema: TableSchema, next_table_id) -> Tuple[Op
     these columns to existing tables.
 
     Args:
-        database_schema: TableSchema object defining the table structure
+        database_schema: DatabaseSchema object defining database structure
+        schema: TableSchema object defining the table structure
+        next_table_id
 
     Returns:
         SQL ALTER TABLE statement or None
@@ -433,6 +435,8 @@ def create_alter_table_statement(schema: TableSchema, next_table_id) -> Tuple[Op
         old_table = schema.table_name
         new_table = generate_table_name(next_table_id)
         schema.table_name = new_table
+        if database_schema:
+            database_schema.tables[new_table] = database_schema.tables.pop(old_table)
         statement = f"ALTER TABLE {old_table} {alter_type} {new_table};"
         next_table_id = next_table_id + 1
 
@@ -737,16 +741,15 @@ def generate_simple_workload(
     statements.append(f"DROP TABLE IF EXISTS {table_name};")
     create_stmt, schema = create_table_statement(table_name, num_columns=random.randint(2, 4))
     statements.append(create_stmt)
-    schemas[table_name] = schema
     database_schema.add_table(schema)
 
     # Main loop: randomly generate diverse statements (7-12 iterations)
     num_iterations = random.randint(9, 16)
-    schemas_list = list(schemas.values())
     next_table_id = 1  # For creating new tables
     next_view_id = 0  # For creating new views
     
     for iteration in range(num_iterations):
+        schemas_list = list(database_schema.tables.values())
         # Weight insertions higher early on, then decrease over iterations
         insert_prob = (0.6 - (iteration / num_iterations) * 1.2)
         create_table_prob = insert_prob + (0.3 - (iteration / num_iterations) * 1.2)
@@ -781,9 +784,7 @@ def generate_simple_workload(
             statements.append(f"DROP TABLE IF EXISTS {new_table_name};")
             create_stmt, new_schema = create_table_statement(new_table_name, num_columns=random.randint(2, 4))
             statements.append(create_stmt)
-            schemas[new_table_name] = new_schema
             database_schema.add_table(new_schema)
-            schemas_list = list(schemas.values())
             next_table_id += 1
         
         elif rand_type < select_prob:
@@ -859,7 +860,7 @@ def generate_simple_workload(
         
         elif random.random() < 0.8:
             # ALTER TABLE (add column)
-            alter_stmt, next_table_id = create_alter_table_statement(selected_schema, next_table_id)
+            alter_stmt, next_table_id = create_alter_table_statement(database_schema, selected_schema, next_table_id)
             if alter_stmt:
                 statements.append(alter_stmt)
         
@@ -885,8 +886,8 @@ def generate_simple_workload(
         # Add transaction
         start_ins = random.randint(1, len(statements))
         end_ins = random.randint(start_ins+1, len(statements)+1)
-        startblock = random.choice(TRANSACTION_START)
-        endblock = random.choice(TRANSACTION_END)
+        startblock = random.choice(TRANSACTION_START) + ";"
+        endblock = random.choice(TRANSACTION_END) + ";"
         statements.insert(start_ins, startblock)
         statements.insert(end_ins, endblock)
 
