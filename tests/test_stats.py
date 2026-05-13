@@ -77,6 +77,7 @@ def _make_run_dir(tmp_path: Path, workloads: list[dict]) -> Path:
 
 
 def test_collect_stats_writes_files_and_counts_correctly(tmp_path: Path):
+    # Two workloads: one fully valid, one that fails on its first statement.
     run = _make_run_dir(tmp_path, [
         {
             "workload_id": "a",
@@ -99,32 +100,33 @@ def test_collect_stats_writes_files_and_counts_correctly(tmp_path: Path):
 
     assert (run / "characteristics.json").is_file()
     assert (run / "characteristics.txt").is_file()
-    assert summary["total_queries"] == 5
-    # Validity buckets.
-    assert summary["validity_counts"]["ok"] == 3
-    assert summary["validity_counts"]["syntax_error"] == 1
+    # Two test cases analyzed (per-workload, not 5 per-statement).
+    assert summary["total_test_cases"] == 2
+    # Workload a is ok; workload b fails on its first statement (runtime).
+    assert summary["validity_counts"]["ok"] == 1
     assert summary["validity_counts"]["runtime_error"] == 1
-    # Validity ratios sum to ~1.0
     assert abs(sum(summary["validity_ratios"].values()) - 1.0) < 1e-9
 
-    # Keyword presence checks.
+    # Keyword coverage is per workload: SELECT appears in both workloads.
     kw = {r["keyword"]: r for r in summary["keywords"]}
     assert kw["SELECT"]["coverage_count"] == 2
     assert kw["FROM"]["coverage_count"] == 2
+    # CREATE / INSERT / WHERE only appear in workload a.
     assert kw["CREATE"]["coverage_count"] == 1
     assert kw["INSERT"]["coverage_count"] == 1
     assert kw["WHERE"]["coverage_count"] == 1
-    # Top-30 returned.
     assert len(summary["top30"]) == 30
 
 
 def test_collect_stats_handles_missing_statements_gracefully(tmp_path: Path):
-    # Old-format records (no `statements` list) must be tolerated.
+    # Old-format records (no `statements` list) are seen but contribute 0
+    # to the per-test-case counts.
     run = _make_run_dir(tmp_path, [
         {"workload_id": "old1", "classification": "ok"},
     ])
     summary = collect_stats(run)
-    assert summary["total_queries"] == 0
+    assert summary["total_test_cases"] == 0
+    assert summary["total_workloads_seen"] == 1
 
 
 # ---------- new polish: unique_keywords_used + per-type validity ---------
@@ -152,14 +154,16 @@ def test_collect_stats_reports_unique_keywords_used(tmp_path: Path):
 
 
 def test_collect_stats_per_statement_type_validity(tmp_path: Path):
+    # Two workloads to exercise the per-statement-type breakdown. The
+    # by-type counts still aggregate per statement (used for the
+    # 'how many SELECTs failed' table); only top-level totals are per
+    # workload now.
     run = _make_run_dir(tmp_path, [{
         "workload_id": "a",
         "statements": [
-            # 2 valid SELECTs, 1 broken SELECT
             {"sql": "SELECT 1;", "rc": 0, "stderr_kind": "", "timed_out": False},
             {"sql": "SELECT 2;", "rc": 0, "stderr_kind": "", "timed_out": False},
             {"sql": "SELECT FROM;", "rc": 1, "stderr_kind": "syntax error", "timed_out": False},
-            # 1 valid INSERT
             {"sql": "INSERT INTO t VALUES(1);", "rc": 0, "stderr_kind": "", "timed_out": False},
         ],
     }])
@@ -171,3 +175,44 @@ def test_collect_stats_per_statement_type_validity(tmp_path: Path):
     assert by_type["SELECT"]["counts"]["syntax_error"] == 1
     assert abs(by_type["SELECT"]["ok_ratio"] - 2/3) < 1e-9
     assert by_type["INSERT"]["ok_ratio"] == 1.0
+
+
+def test_collect_stats_workload_invalid_if_any_statement_fails(tmp_path: Path):
+    # Per the forum: a workload counts as invalid if ANY statement errors.
+    run = _make_run_dir(tmp_path, [{
+        "workload_id": "a",
+        "statements": [
+            {"sql": "CREATE TABLE t(c INT);", "rc": 0, "stderr_kind": "", "timed_out": False},
+            {"sql": "INSERT INTO t VALUES(1);", "rc": 0, "stderr_kind": "", "timed_out": False},
+            {"sql": "SELECT * FROM missing;", "rc": 1, "stderr_kind": "no such table", "timed_out": False},
+        ],
+    }])
+    summary = collect_stats(run)
+    assert summary["validity_counts"] == {"runtime_error": 1}
+    assert summary["validity_ratios"]["runtime_error"] == 1.0
+
+
+def test_collect_stats_workload_keyword_frequency_is_per_workload(tmp_path: Path):
+    # FROM appears twice in workload a, once in workload b. Coverage = 2/2;
+    # avg_per_query (i.e. per workload) = (2 + 1) / 2 = 1.5.
+    run = _make_run_dir(tmp_path, [
+        {
+            "workload_id": "a",
+            "statements": [
+                {"sql": "SELECT 1 FROM t;", "rc": 0, "stderr_kind": "", "timed_out": False},
+                {"sql": "SELECT 2 FROM u;", "rc": 0, "stderr_kind": "", "timed_out": False},
+            ],
+        },
+        {
+            "workload_id": "b",
+            "statements": [
+                {"sql": "SELECT 3 FROM v;", "rc": 0, "stderr_kind": "", "timed_out": False},
+            ],
+        },
+    ])
+    summary = collect_stats(run)
+    kw = {r["keyword"]: r for r in summary["keywords"]}
+    assert kw["FROM"]["coverage_count"] == 2
+    assert kw["FROM"]["coverage_ratio"] == 1.0
+    assert kw["FROM"]["total_occurrences"] == 3
+    assert kw["FROM"]["avg_per_query"] == 1.5

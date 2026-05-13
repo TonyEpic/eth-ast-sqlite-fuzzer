@@ -66,6 +66,10 @@ def collect_coverage(
             "--gcov-ignore-errors", "source_not_found",
             "--gcov-ignore-errors", "no_working_dir_found",
             "--exclude", ".*conftest.*",
+            # shell.c is the sqlite3 CLI REPL (.tables, .dump, etc.),
+            # not the engine. Our SQL fuzzer doesn't generate dot-commands,
+            # so including it just dilutes the headline coverage number.
+            "--exclude", ".*shell\\.c",
             "--json-summary-pretty",
             "-o", str(summary_path),
         ],
@@ -82,6 +86,7 @@ def collect_coverage(
             "--gcov-ignore-errors", "source_not_found",
             "--gcov-ignore-errors", "no_working_dir_found",
             "--exclude", ".*conftest.*",
+            "--exclude", ".*shell\\.c",
             "-o", str(text_path),
         ],
         check=False,

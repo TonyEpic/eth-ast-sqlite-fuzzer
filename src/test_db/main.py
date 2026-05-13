@@ -59,6 +59,7 @@ def _cmd_experiment(args: argparse.Namespace) -> None:
         keep_sql=args.keep_sql,
         progress_every=args.progress_every,
         coverage=args.coverage,
+        metamorphic=args.metamorphic,
     )
     print_summary(summary)
 
@@ -147,6 +148,8 @@ def build_parser() -> argparse.ArgumentParser:
                        help="Print a progress line every N workloads.")
     exp_p.add_argument("--coverage", action="store_true",
                        help="Also run on the gcov-instrumented binary and emit a coverage report.")
+    exp_p.add_argument("--metamorphic", action="store_true",
+                       help="Apply metamorphic single-engine oracle (predicate commutation + NoREC).")
     exp_p.set_defaults(func=_cmd_experiment)
 
     tri_p = sub.add_parser(

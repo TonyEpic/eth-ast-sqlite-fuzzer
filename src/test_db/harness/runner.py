@@ -25,6 +25,7 @@ from test_db.generator.workload_generator import generate_workload
 from test_db.harness.coverage import collect_coverage, reset_coverage_data
 from test_db.oracle.classifier import classify_single
 from test_db.oracle.differential import compare_results
+from test_db.oracle.metamorphic import check_metamorphic
 from test_db.oracle.normalizer import normalize_error
 
 
@@ -64,9 +65,9 @@ class WorkloadOutcome:
     statements: list = field(default_factory=list)
 
 
-def _run_one(args: tuple[bool, bool, int]) -> WorkloadOutcome:
+def _run_one(args: tuple[bool, bool, bool, int]) -> WorkloadOutcome:
     """Generate one workload, run it, return a compact outcome record."""
-    diff, coverage, timeout_sec = args
+    diff, coverage, metamorphic, timeout_sec = args
 
     workload_id = uuid.uuid4().hex[:8]
 
@@ -90,10 +91,22 @@ def _run_one(args: tuple[bool, bool, int]) -> WorkloadOutcome:
             classification = "mismatch"
             reason = diff_reason
 
+    # Metamorphic check runs only when the workload itself was 'ok' so far
+    # -- there's no point checking semantics on a workload that already
+    # errored or crashed.
+    if metamorphic and classification == "ok":
+        t = time.perf_counter()
+        run_fn = lambda stmts: run_on_patched(stmts, timeout_sec=timeout_sec)
+        same, meta_reason = check_metamorphic(workload.statements, patched, run_fn)
+        exec_patched_ms += (time.perf_counter() - t) * 1000  # re-runs hit patched too
+        if not same:
+            classification = "metamorphic_mismatch"
+            reason = meta_reason
+
     exec_coverage_ms = 0.0
     if coverage:
         t = time.perf_counter()
-        # Errors here don't matter for classification — we just want the
+        # Errors here don't matter for classification -- we just want the
         # instrumented binary to exercise its code paths.
         run_on_coverage(workload.statements, timeout_sec=timeout_sec)
         exec_coverage_ms = (time.perf_counter() - t) * 1000
@@ -144,6 +157,7 @@ def run_experiment(
     keep_sql: bool = False,
     progress_every: int = 100,
     coverage: bool = False,
+    metamorphic: bool = False,
 ) -> dict:
     """Run workloads until at least `target_queries` queries have been generated.
 
@@ -182,7 +196,7 @@ def run_experiment(
 
     wall_start = time.perf_counter()
 
-    job = (diff, coverage, timeout_sec)
+    job = (diff, coverage, metamorphic, timeout_sec)
     with jsonl_path.open("w", encoding="utf-8") as jf, \
          ProcessPoolExecutor(max_workers=workers) as pool:
 

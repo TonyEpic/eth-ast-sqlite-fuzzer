@@ -1,13 +1,24 @@
 """SQL keyword coverage / frequency + query-validity analyzer.
 
 Reads an experiment run's `workloads.jsonl` and produces the
-"Characteristics of generated SQL queries" report demanded by the spec:
+"Characteristics of generated SQL queries" report demanded by the spec.
+
+*Per the project forum's clarification*, the spec's "query" is **one
+generated test case** (a multi-statement workload), not an individual SQL
+statement. So coverage / frequency / validity are all aggregated per
+workload:
 
   1. SQL keyword coverage: for each keyword K, in how many of the N
-     generated queries (statements) does K appear at least once.
-  2. SQL keyword frequency: mean number of occurrences of K per query.
-  3. Query validity: ratio of statements that executed cleanly vs failed
-     with a syntax error vs failed with a runtime error vs timed out.
+     generated test cases (workloads) does K appear at least once.
+  2. SQL keyword frequency: mean number of K's occurrences per test case,
+     summed across all statements of the workload.
+  3. Query validity: a workload is `ok` only if every statement executed
+     cleanly; otherwise it is bucketed by the first failing statement's
+     error category (syntax_error / runtime_error / timeout / crash).
+
+For extra depth we also keep a per-statement-type breakdown of validity
+(e.g. "how many SELECTs failed"), but the headline numbers follow the
+spec/forum definition.
 
 Outputs:
   - <run_dir>/characteristics.json   machine-readable
@@ -110,11 +121,13 @@ def statement_type(sql: str) -> str:
 # Driver
 # ---------------------------------------------------------------------------
 
-def _iter_statements(jsonl_path: Path) -> Iterator[dict]:
-    """Yield per-statement dicts from a run's workloads.jsonl.
+def _iter_workloads(jsonl_path: Path) -> Iterator[dict]:
+    """Yield workload-level records (one per generated test case).
 
-    Each yielded dict has at least: sql, rc, stderr_kind, timed_out.
-    Records that pre-date the per-statement persistence change are skipped.
+    Each yielded record carries at least a `statements` list (the per-
+    statement results) and the workload's classification metadata. Records
+    that pre-date the per-statement persistence change are still yielded so
+    callers can decide what to do with them.
     """
     with jsonl_path.open("r", encoding="utf-8") as f:
         for line in f:
@@ -122,48 +135,78 @@ def _iter_statements(jsonl_path: Path) -> Iterator[dict]:
             if not line:
                 continue
             try:
-                rec = json.loads(line)
+                yield json.loads(line)
             except json.JSONDecodeError:
                 continue
-            for s in rec.get("statements", []):
-                if "sql" in s:
-                    yield s
+
+
+def _workload_validity(stmts: list[dict]) -> str:
+    """Bucket a whole workload by its first failing statement.
+
+    A workload is `ok` iff every statement returned rc=0 and did not time
+    out. Otherwise it inherits the category (timeout / crash / syntax_error
+    / runtime_error) of the first statement that broke.
+    """
+    for s in stmts:
+        rc = int(s.get("rc", 0))
+        kind = str(s.get("stderr_kind", ""))
+        timed_out = bool(s.get("timed_out", False))
+        bucket = classify_validity(rc, kind, timed_out)
+        if bucket != "ok":
+            return bucket
+    return "ok"
 
 
 def collect_stats(run_dir: Path) -> dict:
     """Analyze a run directory and return a stats summary dict.
 
-    Also writes characteristics.json and characteristics.txt next to the
-    run's workloads.jsonl.
+    Aggregates per workload (test case), not per statement. Also writes
+    characteristics.json and characteristics.txt next to workloads.jsonl.
     """
     run_dir = Path(run_dir)
     jsonl_path = run_dir / "workloads.jsonl"
     if not jsonl_path.is_file():
         raise FileNotFoundError(f"workloads.jsonl not found in {run_dir}")
 
-    n_stmts = 0
-    coverage_count: Counter = Counter()   # how many stmts mention each keyword
-    total_count: Counter = Counter()      # total occurrences across all stmts
+    n_workloads = 0
+    n_workloads_with_stmts = 0
+    # Per-workload keyword coverage / total-occurrence counts.
+    coverage_count: Counter = Counter()
+    total_count: Counter = Counter()
     validity = Counter()
-    # Per-statement-type validity: { type: { bucket: count } }.
+    # Supplementary: per-statement-type validity buckets, kept for the
+    # report's interpretation paragraph ("99% of CREATEs valid", ...).
     by_type: dict[str, Counter] = {}
 
-    for s in _iter_statements(jsonl_path):
-        n_stmts += 1
-        sql = s["sql"]
-        kw_counts = count_keywords(sql)
-        for kw, n in kw_counts.items():
+    for rec in _iter_workloads(jsonl_path):
+        n_workloads += 1
+        stmts = rec.get("statements") or []
+        if not stmts:
+            # Pre-stats-collector record format. Cannot extract keywords;
+            # skip so the percentages we report stay honest.
+            continue
+        n_workloads_with_stmts += 1
+
+        # Per-workload keyword aggregation: presence (coverage) and total
+        # occurrence count across all the workload's statements.
+        workload_total: Counter = Counter()
+        for s in stmts:
+            workload_total.update(count_keywords(s.get("sql", "")))
+            by_type.setdefault(statement_type(s.get("sql", "")), Counter())[
+                classify_validity(
+                    int(s.get("rc", 0)),
+                    str(s.get("stderr_kind", "")),
+                    bool(s.get("timed_out", False)),
+                )
+            ] += 1
+        for kw, n in workload_total.items():
             coverage_count[kw] += 1
             total_count[kw] += n
-        bucket = classify_validity(
-            int(s.get("rc", 0)),
-            str(s.get("stderr_kind", "")),
-            bool(s.get("timed_out", False)),
-        )
-        validity[bucket] += 1
-        by_type.setdefault(statement_type(sql), Counter())[bucket] += 1
+
+        validity[_workload_validity(stmts)] += 1
 
     # Build per-keyword table sorted by coverage descending.
+    n_for_ratios = n_workloads_with_stmts
     keyword_rows = []
     for kw in SQLITE_KEYWORDS:
         cov = coverage_count.get(kw, 0)
@@ -171,9 +214,9 @@ def collect_stats(run_dir: Path) -> dict:
         keyword_rows.append({
             "keyword": kw,
             "coverage_count": cov,
-            "coverage_ratio": cov / n_stmts if n_stmts else 0.0,
+            "coverage_ratio": cov / n_for_ratios if n_for_ratios else 0.0,
             "total_occurrences": tot,
-            "avg_per_query": tot / n_stmts if n_stmts else 0.0,
+            "avg_per_query": tot / n_for_ratios if n_for_ratios else 0.0,
         })
     keyword_rows.sort(key=lambda r: (-r["coverage_count"], r["keyword"]))
 
@@ -182,10 +225,10 @@ def collect_stats(run_dir: Path) -> dict:
         k: (v / validity_total if validity_total else 0.0) for k, v in validity.items()
     }
 
-    # How many of the 147 SQLite keywords did the fuzzer ever emit?
     unique_keywords_used = sum(1 for r in keyword_rows if r["coverage_count"] > 0)
 
-    # Per-statement-type rows for the report.
+    # Per-statement-type rows -- supplementary breakdown, useful for the
+    # report but not the headline number.
     type_rows = []
     for stmt_type, ctr in sorted(by_type.items(), key=lambda kv: -sum(kv[1].values())):
         total = sum(ctr.values())
@@ -198,7 +241,8 @@ def collect_stats(run_dir: Path) -> dict:
 
     summary = {
         "run_dir": str(run_dir),
-        "total_queries": n_stmts,
+        "total_test_cases": n_for_ratios,
+        "total_workloads_seen": n_workloads,
         "unique_keywords_used": unique_keywords_used,
         "total_keywords_known": len(SQLITE_KEYWORDS),
         "validity_counts": dict(validity),
@@ -220,7 +264,7 @@ def collect_stats(run_dir: Path) -> dict:
 # ---------------------------------------------------------------------------
 
 def _format_text(summary: dict) -> str:
-    n = summary["total_queries"]
+    n = summary.get("total_test_cases", summary.get("total_queries", 0))
     unique = summary.get("unique_keywords_used", 0)
     total_kw = summary.get("total_keywords_known", len(SQLITE_KEYWORDS))
     counts = summary["validity_counts"]
@@ -230,9 +274,9 @@ def _format_text(summary: dict) -> str:
     lines: list[str] = []
     lines.append("Characteristics of generated SQL queries")
     lines.append("=" * 60)
-    lines.append(f"Total statements analyzed : {n}")
+    lines.append(f"Total test cases analyzed : {n}")
     lines.append(f"Unique keywords exercised : {unique} / {total_kw}")
-    lines.append(f"Overall validity (ok)     : {valid_pct:.1f}%")
+    lines.append(f"Overall validity (ok)     : {valid_pct:.1f}% of test cases")
     lines.append("")
     lines.append("Validity by outcome:")
     lines.append(f"  {'BUCKET':<14} {'COUNT':>8} {'RATIO':>8}")
@@ -265,7 +309,7 @@ def _format_text(summary: dict) -> str:
         )
     lines.append("")
     lines.append(
-        f"SUMMARY: {n} statements, {unique}/{total_kw} keywords used, {valid_pct:.1f}% valid"
+        f"SUMMARY: {n} test cases, {unique}/{total_kw} keywords used, {valid_pct:.1f}% valid"
     )
     return "\n".join(lines)
 
