@@ -69,7 +69,7 @@ def _cmd_experiment(args: argparse.Namespace) -> None:
         stats_summary = collect_stats(run_dir)
         print(
             f"[stats] wrote {run_dir / 'characteristics.json'} "
-            f"({stats_summary['total_queries']} statements analyzed)",
+            f"({stats_summary['total_test_cases']} test cases analyzed)",
             flush=True,
         )
     except FileNotFoundError as e:
@@ -135,7 +135,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     exp_p = sub.add_parser("experiment", help="Controlled experiment up to a query budget.")
     exp_p.add_argument("--queries", type=int, default=10000,
-                       help="Target number of generated queries (default: 10000).")
+                       help="Target number of generated test cases (workloads). "
+                            "Default: 10000.")
     exp_p.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1),
                        help="Number of parallel worker processes.")
     exp_p.add_argument("--diff", action="store_true",

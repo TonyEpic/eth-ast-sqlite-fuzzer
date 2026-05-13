@@ -32,11 +32,11 @@ from test_db.oracle.normalizer import normalize_error
 # ---------------------------------------------------------------------------
 # What counts as a "query"
 # ---------------------------------------------------------------------------
-# The spec's "10,000 queries" target counts every generated SQL statement
-# (CREATE / INSERT / SELECT / UPDATE / ...), not just read queries. The
-# keyword-coverage analysis the spec asks for explicitly tabulates CREATE,
-# INSERT, JOIN, WHERE, VIEW, etc., so excluding setup statements would
-# undercount.
+# Per the project forum: "query" means one generated test case (a multi-
+# statement workload), not one SQL statement. So the experiment budget
+# (--queries N) is satisfied once we have generated N workloads. We still
+# track num_statements for the report so we can describe how many SQL
+# statements the campaign actually exercised.
 def _is_query(sql: str) -> bool:
     return bool(sql.strip())
 
@@ -211,7 +211,7 @@ def run_experiment(
 
         submit_more()
 
-        while in_flight and total_queries < target_queries:
+        while in_flight and n_workloads < target_queries:
             done = next(as_completed(in_flight))
             in_flight.remove(done)
             outcome: WorkloadOutcome = done.result()
@@ -247,16 +247,16 @@ def run_experiment(
 
             if n_workloads % progress_every == 0:
                 elapsed = time.perf_counter() - wall_start
-                qpm = total_queries / elapsed * 60 if elapsed > 0 else 0
+                tpm = n_workloads / elapsed * 60 if elapsed > 0 else 0
                 print(
-                    f"[{n_workloads:>5} workloads | {total_queries:>6} queries | "
-                    f"{qpm:>7.0f} q/min] " + ", ".join(
+                    f"[{n_workloads:>5} test cases | {total_statements:>6} stmts | "
+                    f"{tpm:>7.0f} tc/min] " + ", ".join(
                         f"{k}={v}" for k, v in sorted(counts.items())
                     ),
                     flush=True,
                 )
 
-            if total_queries < target_queries:
+            if n_workloads < target_queries:
                 submit_more()
 
         # Cancel anything still queued past the budget.
@@ -284,20 +284,31 @@ def run_experiment(
         "diff_enabled": diff,
         "workers": workers,
         "timeout_sec": timeout_sec,
-        "target_queries": target_queries,
+        "target_test_cases": target_queries,
         "wall_seconds": wall_elapsed,
-        "workloads": n_workloads,
+        "test_cases": n_workloads,
+        "workloads": n_workloads,            # alias, kept for backward compat
         "statements": {
             "generated": total_statements,
             "executed": total_executed_statements,
         },
         "queries": {
-            "generated": total_queries,
-            "executed": total_executed_queries,
+            # Kept for backward compatibility with older tooling that reads
+            # `queries.generated` as "how much SQL the campaign produced".
+            "generated": total_statements,
+            "executed": total_executed_statements,
         },
         "throughput_per_minute": {
-            "queries_generated": total_queries / wall_elapsed * 60 if wall_elapsed else 0,
-            "queries_generated_and_executed": total_executed_queries / wall_elapsed * 60 if wall_elapsed else 0,
+            # The spec asks for queries (= test cases) generated/executed
+            # per minute. We expose both the test-case rate and the underlying
+            # statement rate so the report can discuss either.
+            "test_cases_generated": n_workloads / wall_elapsed * 60 if wall_elapsed else 0,
+            "test_cases_generated_and_executed": n_workloads / wall_elapsed * 60 if wall_elapsed else 0,
+            "statements_generated": total_statements / wall_elapsed * 60 if wall_elapsed else 0,
+            "statements_generated_and_executed": total_executed_statements / wall_elapsed * 60 if wall_elapsed else 0,
+            # Legacy aliases (q/min = test-cases/min under the new semantics).
+            "queries_generated": n_workloads / wall_elapsed * 60 if wall_elapsed else 0,
+            "queries_generated_and_executed": n_workloads / wall_elapsed * 60 if wall_elapsed else 0,
             "workloads": n_workloads / wall_elapsed * 60 if wall_elapsed else 0,
         },
         "time_breakdown_ms_per_workload": {
@@ -328,12 +339,13 @@ def print_summary(summary: dict) -> None:
     print()
     print("=" * 60)
     print(f"Run {summary['run_id']} finished in {summary['wall_seconds']:.1f}s")
-    print(f"  workloads:           {summary['workloads']}")
-    print(f"  queries generated:   {summary['queries']['generated']}")
-    print(f"  queries executed:    {summary['queries']['executed']}")
-    print(f"  q/min generated:     {tp['queries_generated']:.0f}")
-    print(f"  q/min gen + exec:    {tp['queries_generated_and_executed']:.0f}")
-    print(f"  classifications:     {summary['classification_counts']}")
+    print(f"  test cases (workloads): {summary['test_cases']}")
+    print(f"  statements generated:   {summary['statements']['generated']}")
+    print(f"  statements executed:    {summary['statements']['executed']}")
+    print(f"  tc/min  generated:      {tp['test_cases_generated']:.0f}")
+    print(f"  tc/min  gen + exec:     {tp['test_cases_generated_and_executed']:.0f}")
+    print(f"  stmts/min gen + exec:   {tp['statements_generated_and_executed']:.0f}")
+    print(f"  classifications:        {summary['classification_counts']}")
     print("=" * 60)
 
 
